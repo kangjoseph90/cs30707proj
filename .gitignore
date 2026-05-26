@@ -1,1 +1,6 @@
 save/
+runs/
+runs_smoke/
+__pycache__/
+*.pyc
+learning_curves.png

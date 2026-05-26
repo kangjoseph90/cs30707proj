@@ -1,154 +1,212 @@
-import pygame
-import random
-import numpy as np
-from pygame import draw
-from numpy import array as Vec
-from model import DQN
-import torch
-import copy
-import matplotlib.pyplot as plt
 import os
-import time
+import random
+import copy
+from collections import deque
 
-pygame.init()
+import numpy as np
+import torch
+
+from numpy import array as Vec
+
+BoardX = 20
+BoardY = 20
+PixelPerBlock = 40
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 
-BoardX = 20 #게임 사이즈n
-
-BoardY = 20
-
-PixelPerBlock = 40
-
-screen = pygame.display.set_mode((BoardX*PixelPerBlock, BoardY*PixelPerBlock), pygame.DOUBLEBUF)
-
-pygame.display.set_caption("Snake Game in RL")
-
-font=pygame.font.SysFont("consolas",30,True,False)
-
-clock = pygame.time.Clock()
-
-framerate = 60
-
-delta = [ #방향당 위치 변화값
-    Vec([1, 0]),  # Right
-    Vec([0, 1]),  # Down
-    Vec([-1, 0]),  # Left
-    Vec([0, -1])  # Up
+delta = [
+    Vec([1, 0]),    # 0: Right
+    Vec([0, 1]),    # 1: Down
+    Vec([-1, 0]),   # 2: Left
+    Vec([0, -1]),   # 3: Up
 ]
 
-KEY2DIR = { 
-    pygame.K_UP: 3,
-    pygame.K_DOWN: 1,
-    pygame.K_LEFT: 2,
-    pygame.K_RIGHT: 0
-}
+_PYGAME = None
+_screen = None
+_font = None
+_clock = None
 
-def Opposite(dir): #정면방향 기준 뒤쪽 방향 (절대방향) 리턴
-    return (dir+2) % 4
 
-def getDir(dir): #정면방향 기준 [좌측, 정면, 우측] (절대방향) 리턴
-    foward = dir
-    right = (dir+1) % 4
-    left = (dir-1) % 4
-    return [left, foward, right]
+def _init_pygame(headless=False):
+    global _PYGAME, _screen, _font, _clock
+    if _PYGAME is not None:
+        return _PYGAME
+    if headless:
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+    pygame.init()
+    _screen = pygame.display.set_mode(
+        (BoardX * PixelPerBlock, BoardY * PixelPerBlock), pygame.DOUBLEBUF
+    )
+    pygame.display.set_caption("Snake Game in RL")
+    _font = pygame.font.SysFont("consolas", 30, True, False)
+    _clock = pygame.time.Clock()
+    _PYGAME = pygame
+    return pygame
+
+
+def Opposite(d):
+    return (d + 2) % 4
+
+
+def getDir(d):
+    forward = d
+    right = (d + 1) % 4
+    left = (d - 1) % 4
+    return [left, forward, right]
+
 
 def norm(vec):
-    return abs(vec[0])+abs(vec[1])
+    return abs(vec[0]) + abs(vec[1])
 
-def DrawBlock(position, color):
-    block = pygame.Rect(position[0]*PixelPerBlock+1, position[1]
-                        * PixelPerBlock+1, PixelPerBlock-2, PixelPerBlock-2)
-    pygame.draw.rect(screen, color, block)
 
-def isEqual(vec1, vec2): #두 벡터가 방향이 같은지 확인 
-    vec2=vec2/norm(vec2)
-    if np.array_equal(vec1,vec2):
+def isEqual(vec1, vec2):
+    vec2 = vec2 / norm(vec2)
+    if np.array_equal(vec1, vec2):
         return True
     return False
 
+
+def DrawBlock(position, color):
+    pygame = _PYGAME
+    block = pygame.Rect(
+        position[0] * PixelPerBlock + 1,
+        position[1] * PixelPerBlock + 1,
+        PixelPerBlock - 2,
+        PixelPerBlock - 2,
+    )
+    pygame.draw.rect(_screen, color, block)
+
+
 score_history = [0]
 
+
 class Snake:
-    def __init__(self): #게임 초기상태
-        self.board=np.zeros((BoardX,BoardY))
-        self.body = [Vec([BoardX//2, BoardY//2]), Vec([BoardX//2, BoardY//2])]
-        self.board[BoardX//2][BoardY//2]=2
+    def __init__(self, frame_stack: int = 1):
+        self.board = np.zeros((BoardX, BoardY), dtype=np.int32)
+        self.body = [Vec([BoardX // 2, BoardY // 2]), Vec([BoardX // 2, BoardY // 2])]
+        self.board[BoardX // 2][BoardY // 2] = 2
         self.dir = 0
         self.last_dir = 0
         self.consume = False
         self.genApple()
         self.score = 0
-        self.last_distance=self.apple-self.body[0]
+        self.last_distance = self.apple - self.body[0]
+        # Frame-stack placeholder: deque of recent (3, H, W) grids.
+        # k=1 keeps the original behavior; k>1 returns (3k, H, W) in getFullState.
+        self.frame_stack = max(1, int(frame_stack))
+        self._frame_buf: "deque[np.ndarray]" = deque(maxlen=self.frame_stack)
 
-    def Draw(self,episode, mxscore): #화면 출력
+    def Draw(self, episode, mxscore):
         for position in self.body:
             DrawBlock(position, WHITE)
         DrawBlock(self.apple, RED)
-        text=font.render(f"Episode : {episode}  score : {self.score}  max score: {mxscore}",True,GREEN)
-        screen.blit(text,(10,10))
+        text = _font.render(
+            f"Episode : {episode}  score : {self.score}  max score: {mxscore}",
+            True,
+            GREEN,
+        )
+        _screen.blit(text, (10, 10))
 
-    def MoveSnake(self): #현재 dir로 이동
-        head = self.body[0]+delta[self.dir]
+    def MoveSnake(self):
+        head = self.body[0] + delta[self.dir]
         self.body.insert(0, head)
         if self.isOutOfBoard(head):
             return
-        self.board[head[0],head[1]]+=1
+        self.board[head[0], head[1]] += 1
         if np.array_equal(head, self.apple):
             self.consume = True
             self.score += 1
             self.genApple()
         else:
-            tail=self.body.pop()
-            self.board[tail[0]][tail[1]]-=1
+            tail = self.body.pop()
+            self.board[tail[0]][tail[1]] -= 1
 
-    def isDead(self): #죽었는지 확인
+    def isDead(self):
         head = self.body[0]
         if self.isOutOfBoard(head):
             return True
-        if self.board[head[0]][head[1]]>1:
+        if self.board[head[0]][head[1]] > 1:
             return True
         return False
 
-    def changeDir(self, dir_NEW): #절대방향으로 방향 변경
+    def changeDir(self, dir_NEW):
         self.dir = dir_NEW
 
-    def genApple(self): #사과 생성
+    def genApple(self):
         while True:
-            temp = random.randrange(0, BoardX*BoardY)
-            apple = Vec([temp % BoardX, temp//BoardX])
-            if self.board[apple[0]][apple[1]]>0:
+            temp = random.randrange(0, BoardX * BoardY)
+            apple = Vec([temp % BoardX, temp // BoardX])
+            if self.board[apple[0]][apple[1]] > 0:
                 continue
             self.apple = apple
-            self.last_distance=self.apple-self.body[0]
+            self.last_distance = self.apple - self.body[0]
             return
 
-    def getState(self): #현재 state 리턴  
+    def getState(self):
+        """Original windowed state (85-dim): 9x9 grid centered on head + 4 apple-dir bits."""
         head = self.body[0]
-        dir = getDir(self.dir)+[Opposite(self.dir)]  # left,foward,right
-        pos=copy.deepcopy(head)+delta[dir[0]]*6+delta[dir[1]]*6
-        grid=np.zeros((9,9))
+        dir = getDir(self.dir) + [Opposite(self.dir)]
+        pos = copy.deepcopy(head) + delta[dir[0]] * 6 + delta[dir[1]] * 6
+        grid = np.zeros((9, 9))
         for i in range(9):
             for j in range(9):
                 if self.isOutOfBoard(pos):
-                    grid[i][j]=0
-                elif self.board[pos[0],pos[1]]>0:
-                    grid[i][j]=0
-                else: 
-                    grid[i][j]=1
-                pos+=delta[dir[2]]
-            pos+=delta[dir[0]]*9-delta[dir[1]]
+                    grid[i][j] = 0
+                elif self.board[pos[0], pos[1]] > 0:
+                    grid[i][j] = 0
+                else:
+                    grid[i][j] = 1
+                pos += delta[dir[2]]
+            pos += delta[dir[0]] * 9 - delta[dir[1]]
         appledir = [0, 0, 0, 0]
-        toapple = self.apple-head
+        toapple = self.apple - head
         for i in range(4):
             if np.inner(toapple, delta[dir[i]]) > 0:
                 appledir[i] = 1
-        return torch.FloatTensor(list(np.ravel(grid))+appledir)
+        return torch.FloatTensor(list(np.ravel(grid)) + appledir)
 
-    def getReward(self): #사과 먹었으면 50점 죽으면 -100점 가까워지면 5점 멀어지면 -2점
+    def _currentGrid(self) -> np.ndarray:
+        """Render the current board as a (3, BoardX, BoardY) float32 array."""
+        grid = np.zeros((3, BoardX, BoardY), dtype=np.float32)
+        for i, seg in enumerate(self.body):
+            if self.isOutOfBoard(seg):
+                continue
+            if i == 0:
+                grid[1, seg[0], seg[1]] = 1.0
+            else:
+                grid[0, seg[0], seg[1]] = 1.0
+        if not self.isOutOfBoard(self.apple):
+            grid[2, self.apple[0], self.apple[1]] = 1.0
+        return grid
+
+    def getFullState(self):
+        """Full state for the conv encoder + 4-d direction one-hot.
+
+        With frame_stack == 1 (default): grid is (3, BoardX, BoardY).
+        With frame_stack == k > 1: the k most recent frames are concatenated
+        along the channel axis -> (3k, BoardX, BoardY). Newest frame first.
+        Before the buffer is full, missing slots are zero-padded.
+        """
+        cur = self._currentGrid()
+        self._frame_buf.append(cur)
+        if self.frame_stack == 1:
+            grid = cur
+        else:
+            frames = list(self._frame_buf)
+            while len(frames) < self.frame_stack:
+                frames.insert(0, np.zeros_like(cur))
+            # newest first -> reverse so index 0..2 are the most recent frame
+            frames = frames[::-1]
+            grid = np.concatenate(frames, axis=0)
+        dir_onehot = np.zeros(4, dtype=np.float32)
+        dir_onehot[self.dir] = 1.0
+        return torch.from_numpy(grid), torch.from_numpy(dir_onehot)
+
+    def getReward(self):
         if self.consume:
             self.consume = False
             return 50
@@ -161,59 +219,64 @@ class Snake:
         self.last_distance = now_distance
         return -1
 
-    def isOutOfBoard(self, position): #해당 좌표가 보드 밖으로 나갔는지 확인
-        if position[0] < 0 or position[0] >= BoardX or position[1] < 0 or position[1] >= BoardY:
+    def isOutOfBoard(self, position):
+        if (
+            position[0] < 0
+            or position[0] >= BoardX
+            or position[1] < 0
+            or position[1] >= BoardY
+        ):
             return True
         return False
 
+
 def load(agent):
-    ans=input("load model? (Y/N) : ")
+    ans = input("load model? (Y/N) : ")
     if ans != "Y" and ans != "y":
         return
-    NAME=input("name : ")
+    NAME = input("name : ")
     agent.load(NAME)
 
+
 def save(agent):
-    ans=input("save model? (Y/N) : ")
+    ans = input("save model? (Y/N) : ")
     if ans != "Y" and ans != "y":
         return
-    NAME=input("name : ")
+    NAME = input("name : ")
     agent.save(NAME)
 
-def train(episode):
-    os.system("cls")
-    global framerate
-    Game = Snake() 
-    agent = DQN(episode,9**2+4,3)
-    #load(agent)
+
+def train(episode, render=True, framerate=60, save_path=None, plot=True):
+    """Original windowed-state DQN training. Kept for reference / baseline.
+
+    Use train_dqn_window.py for the baseline experiment with headless support.
+    """
+    from model import DQN
+    import matplotlib.pyplot as plt
+
+    pygame = _init_pygame(headless=not render)
+    os.system("cls" if os.name == "nt" else "clear")
+    Game = Snake()
+    agent = DQN(episode, 9 ** 2 + 4, 3)
     for i in range(episode):
         print(f"epsilon : {agent.epsilon_threshold}")
         while True:
-            clock.tick(framerate)  #딜레이
-            screen.fill(BLACK)
-            
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    break
-                if event.type==pygame.KEYDOWN:
-                    if event.key==pygame.K_SPACE:
-                        framerate=70-framerate
-                    if event.key==pygame.K_e:
-                        agent.epsilon_threshold=0
-                    if event.key==pygame.K_s:
-                        save(agent)
-                    if event.key==pygame.K_l:
-                        load(agent)
-                    if event.key==pygame.K_ESCAPE:
+            if render:
+                _clock.tick(framerate)
+                _screen.fill(BLACK)
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
                         return
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            return
 
             dirs = getDir(Game.dir)
             state = Game.getState()
             action = agent.select_action(state)
-
             Game.changeDir(dirs[action])
             Game.MoveSnake()
-            next_state=Game.getState()
+            next_state = Game.getState()
             reward = Game.getReward()
             agent.memorize(state, action, reward, next_state)
             agent.optimize_model(load_data=False)
@@ -224,15 +287,19 @@ def train(episode):
                 Game.__init__()
                 break
 
-            Game.Draw(i+1, max(score_history))
-            pygame.display.flip()
-        print(f"{i+1}/{episode} - 점수 : {score_history[i]} / 최고 점수 : {max(score_history)}")
-    save(agent)
-    plt.plot(score_history)
-    plt.title(f"Result of Snake Game in RL that {episode} times learning")
-    plt.xlabel("Number of Games")
-    plt.ylabel("Score")
-    plt.show()
+            if render:
+                Game.Draw(i + 1, max(score_history))
+                pygame.display.flip()
+        print(f"{i+1}/{episode} - score : {score_history[i]} / max : {max(score_history)}")
+    if save_path is not None:
+        agent.save(save_path)
+    if plot:
+        plt.plot(score_history)
+        plt.title(f"Result of Snake Game in RL ({episode} episodes)")
+        plt.xlabel("Number of Games")
+        plt.ylabel("Score")
+        plt.show()
+
 
 if __name__ == "__main__":
-    train(int(100))
+    train(100)

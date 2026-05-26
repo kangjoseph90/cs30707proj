@@ -61,7 +61,7 @@ def getDir(dir): #정면방향 기준 [좌측, 정면, 우측] (절대방향) �
 
 class Game_2048:
     def __init__(self):
-        self.board=np.zeros((Board_size,Board_size),dtype=np.int)
+        self.board=np.zeros((Board_size,Board_size),dtype=int)
         self.total_score=0
         self.scored=0
         self.start={
