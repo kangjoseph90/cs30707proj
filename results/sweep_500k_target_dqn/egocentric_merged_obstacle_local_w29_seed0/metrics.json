@@ -1,0 +1,21 @@
+{
+  "representation": "egocentric_merged_obstacle_local",
+  "input_dimension": 847,
+  "compression_ratio_vs_full": 0.0373,
+  "input_sparsity_mean": 0.259,
+  "input_sparsity_std": 0.0087,
+  "parameter_count": 258435,
+  "training_time_seconds": 3335.76,
+  "env_step_time_seconds": 13.3661,
+  "action_encoding_time_seconds": 126.5252,
+  "replay_cache_encoding_time_seconds": 122.6454,
+  "batch_encoding_time_seconds": 1258.28,
+  "optimization_time_seconds": 2953.9384,
+  "best_eval_score_mean": 37.63,
+  "final_eval_score_mean": 32.63,
+  "final_eval_score_std": 7.74,
+  "best_score": 49,
+  "learning_curve_auc": 24.1875,
+  "total_env_steps": 500000,
+  "total_episodes": 5080
+}
