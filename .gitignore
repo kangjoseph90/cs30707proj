@@ -1,1 +1,16 @@
-save/
+save
+__pycache__
+.claude
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Large experiment artifacts
+results/**/checkpoint*
+results/**/replay_buffer*
+
+# Analysis data (already processed)
+*.pkl
