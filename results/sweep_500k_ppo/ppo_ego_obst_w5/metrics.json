@@ -1,0 +1,20 @@
+{
+  "representation": "egocentric_merged_obstacle_local",
+  "algorithm": "PPO",
+  "input_dimension": 31,
+  "compression_ratio_vs_full": 0.0014,
+  "input_sparsity_mean": 0.6983,
+  "input_sparsity_std": 0.1282,
+  "parameter_count": 41604,
+  "training_time_seconds": 249.52,
+  "rollout_time_seconds": 84.9001,
+  "update_time_seconds": 140.7368,
+  "eval_time_seconds": 21.8704,
+  "best_eval_score_mean": 24.8,
+  "final_eval_score_mean": 21.6,
+  "final_eval_score_std": 5.85,
+  "best_score": 42,
+  "learning_curve_auc": 16.8998,
+  "total_env_steps": 501760,
+  "total_rollouts": 245
+}

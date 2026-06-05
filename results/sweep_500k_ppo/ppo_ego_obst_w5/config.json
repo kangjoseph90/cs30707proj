@@ -1,0 +1,23 @@
+{
+  "algorithm": "PPO",
+  "representation": "egocentric_merged_obstacle_local",
+  "board_size": 15,
+  "max_length": 100,
+  "total_env_steps": 500000,
+  "seed": 0,
+  "max_steps": 2000,
+  "local_window_size": 5,
+  "input_dimension": 31,
+  "gamma": 0.95,
+  "gae_lambda": 0.95,
+  "learning_rate": 0.0003,
+  "rollout_steps": 2048,
+  "num_epochs": 10,
+  "minibatch_size": 64,
+  "clip_ratio": 0.2,
+  "value_coef": 0.5,
+  "entropy_coef": 0.01,
+  "max_grad_norm": 0.5,
+  "eval_interval": 10000,
+  "eval_episodes": 30
+}
