@@ -206,6 +206,27 @@ def train(args: argparse.Namespace) -> None:
     criterion = torch.nn.SmoothL1Loss()  # Huber loss
     cache_encoded_replay = getattr(args, "cache_encoded_replay", False)
 
+    if args.train_with_planner:
+        from planner import SafetyPlanner
+        planner = SafetyPlanner(
+            planner_weight=args.planner_weight,
+            area_weight=args.planner_area_weight,
+            tail_reach_weight=args.planner_tail_reach_weight,
+        )
+    else:
+        planner = None
+
+    # -- Planner tracking -------------------------------------------------
+    total_interventions = 0
+    total_all_unsafe = 0
+    total_safe_explore = 0
+    all_reachable_areas = []
+    all_tail_reachables = []
+
+    # Episode-level stats
+    episode_interventions = 0
+    episode_all_unsafe = 0
+
     # Determine termination mode
     if args.total_env_steps is not None:
         total_env_steps = args.total_env_steps
@@ -268,6 +289,12 @@ def train(args: argparse.Namespace) -> None:
         "target_update_freq": target_update_freq,
         "grad_clip_norm": grad_clip_norm,
         "n_step": n_step,
+        "train_with_planner": args.train_with_planner,
+        "planner_weight": args.planner_weight,
+        "planner_area_weight": args.planner_area_weight,
+        "planner_tail_reach_weight": args.planner_tail_reach_weight,
+        "planner_safe_exploration": args.planner_safe_exploration,
+        "planner_mask_target_actions": args.planner_mask_target_actions,
     }
     with open(os.path.join(output_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=2)
@@ -315,6 +342,8 @@ def train(args: argparse.Namespace) -> None:
     episode_fruit_reward = 0.0
     episode_distance_reward = 0.0
     episode_death_penalty = 0.0
+    episode_interventions = 0
+    episode_all_unsafe = 0
     # Initial evaluation at step 0
     if args.eval_interval is not None:
         eval_stats = run_greedy_evaluation(
@@ -334,12 +363,54 @@ def train(args: argparse.Namespace) -> None:
 
         sparsity_collector.push(encoded)
 
-        if random.random() > epsilon:
-            with torch.no_grad():
-                sv = torch.FloatTensor(encoded).unsqueeze(0)
-                action = torch.argmax(model(sv)).item()
+        with torch.no_grad():
+            sv = torch.FloatTensor(encoded).unsqueeze(0)
+            q_values = model(sv).squeeze(0).numpy()
+            dqn_argmax = int(np.argmax(q_values))
+
+        is_intervention = False
+        all_unsafe = False
+        is_safe_exploration = False
+
+        if planner is not None:
+            # Planner-guided action selection
+            decision = planner.choose_action(env, q_values)
+            is_intervention = (decision.chosen_action != dqn_argmax)
+            all_unsafe = all(info.immediate_death for info in decision.actions)
+
+            if random.random() > epsilon:
+                # Exploitation: argmax(combined_score) among safe actions
+                action = decision.chosen_action
+            else:
+                # Exploration
+                if args.planner_safe_exploration:
+                    safe_actions = [info.action for info in decision.actions if not info.immediate_death]
+                    if safe_actions:
+                        action = random.choice(safe_actions)
+                    else:
+                        action = dqn_argmax
+                    is_safe_exploration = True
+                else:
+                    action = random.randrange(3)
+            
+            # Log step-level metrics
+            chosen_info = next(info for info in decision.actions if info.action == action)
+            all_reachable_areas.append(chosen_info.reachable_area)
+            all_tail_reachables.append(1.0 if chosen_info.can_reach_tail else 0.0)
+            if is_intervention:
+                total_interventions += 1
+                episode_interventions += 1
+            if all_unsafe:
+                total_all_unsafe += 1
+                episode_all_unsafe += 1
+            if is_safe_exploration:
+                total_safe_explore += 1
         else:
-            action = random.randrange(3)
+            # Standard epsilon-greedy
+            if random.random() > epsilon:
+                action = dqn_argmax
+            else:
+                action = random.randrange(3)
 
         # --- Env step ---
         t0 = time.perf_counter()
@@ -348,14 +419,21 @@ def train(args: argparse.Namespace) -> None:
 
         ate_fruit = info["ate_fruit"]
 
+        # --- Compute next safe mask ---
+        if planner is not None and not terminated:
+            next_decision = planner.analyze_actions(env, [0.0, 0.0, 0.0])
+            next_safe_mask = np.array([not info.immediate_death for info in next_decision], dtype=np.bool_)
+        else:
+            next_safe_mask = None
+
         # --- Store ---
         if cache_encoded_replay:
             t0 = time.perf_counter()
             next_encoded = encoder.encode(next_state)
             t_replay_cache_encoding += time.perf_counter() - t0
-            buffer.push(encoded, action, reward, next_encoded, terminated, truncated)
+            buffer.push(encoded, action, reward, next_encoded, terminated, truncated, next_safe_mask)
         else:
-            buffer.push(state, action, reward, next_state, terminated, truncated)
+            buffer.push(state, action, reward, next_state, terminated, truncated, next_safe_mask)
         analysis_collector.push(
             state, action, reward, next_state, terminated, truncated, ate_fruit,
         )
@@ -370,14 +448,31 @@ def train(args: argparse.Namespace) -> None:
             t_batch_encoding += time.perf_counter() - t_enc_start
 
             b_s, b_a, b_r, b_ns, b_term, b_trunc = sample_out[:6]
-            b_discount = sample_out[6] if len(sample_out) > 6 else torch.full_like(b_r, gamma)
+            if isinstance(buffer, NStepReplayBuffer):
+                b_discount = sample_out[6]
+                b_next_safe_mask = sample_out[7]
+            else:
+                b_discount = torch.full_like(b_r, gamma)
+                b_next_safe_mask = sample_out[6]
 
             current_q = model(b_s).gather(1, b_a)
             with torch.no_grad():
                 # Double DQN: online net selects action, target net evaluates
-                next_actions = model(b_ns).argmax(dim=1, keepdim=True)
+                if args.train_with_planner and args.planner_mask_target_actions:
+                    online_next_q = model(b_ns)
+                    masked_online_next_q = online_next_q.masked_fill(
+                        ~b_next_safe_mask.to(online_next_q.device),
+                        -torch.inf,
+                    )
+                    all_unsafe = ~b_next_safe_mask.to(online_next_q.device).any(dim=1)
+                    masked_online_next_q[all_unsafe] = online_next_q[all_unsafe]
+                    
+                    next_actions = masked_online_next_q.argmax(dim=1, keepdim=True)
+                else:
+                    next_actions = model(b_ns).argmax(dim=1, keepdim=True)
+
                 max_next_q = target_model(b_ns).gather(1, next_actions).squeeze(1)
-                expected_q = b_r + b_discount * max_next_q * (1.0 - b_term)
+                expected_q = b_r + b_discount.to(max_next_q.device) * max_next_q * (1.0 - b_term.to(max_next_q.device))
 
             optimizer.zero_grad()
             loss = criterion(current_q.squeeze(1), expected_q)
@@ -435,7 +530,7 @@ def train(args: argparse.Namespace) -> None:
 
         # --- Episode boundary ---
         if terminated or truncated:
-            csv_rows.append({
+            row = {
                 "episode": episode,
                 "env_steps_total": env_steps,
                 "episode_reward": round(episode_reward, 2),
@@ -449,7 +544,13 @@ def train(args: argparse.Namespace) -> None:
                 "fruit_reward_sum": round(episode_fruit_reward, 1),
                 "distance_shaping_reward_sum": round(episode_distance_reward, 1),
                 "death_penalty_sum": round(episode_death_penalty, 1),
-            })
+            }
+            if args.train_with_planner:
+                row.update({
+                    "planner_intervention_count": episode_interventions,
+                    "all_actions_unsafe_count": episode_all_unsafe,
+                })
+            csv_rows.append(row)
 
             episode += 1
             if (episode % 10 == 0) or (use_episodes and episode >= max_episodes):
@@ -473,6 +574,8 @@ def train(args: argparse.Namespace) -> None:
                 episode_fruit_reward = 0.0
                 episode_distance_reward = 0.0
                 episode_death_penalty = 0.0
+                episode_interventions = 0
+                episode_all_unsafe = 0
         else:
             if env_steps >= total_env_steps:
                 done_training = True
@@ -483,7 +586,7 @@ def train(args: argparse.Namespace) -> None:
 
     # Flush partial episode data if training ended mid-episode
     if not (terminated or truncated) and env_steps >= total_env_steps:
-        csv_rows.append({
+        row = {
             "episode": episode,
             "env_steps_total": env_steps,
             "episode_reward": round(episode_reward, 2),
@@ -497,7 +600,13 @@ def train(args: argparse.Namespace) -> None:
             "fruit_reward_sum": round(episode_fruit_reward, 1),
             "distance_shaping_reward_sum": round(episode_distance_reward, 1),
             "death_penalty_sum": round(episode_death_penalty, 1),
-        })
+        }
+        if args.train_with_planner:
+            row.update({
+                "planner_intervention_count": episode_interventions,
+                "all_actions_unsafe_count": episode_all_unsafe,
+            })
+        csv_rows.append(row)
 
     # Final evaluation
     if args.eval_interval is not None:
@@ -584,6 +693,16 @@ def train(args: argparse.Namespace) -> None:
         "total_env_steps": env_steps,
         "total_episodes": episode,
     }
+    if args.train_with_planner:
+        metrics.update({
+            "planner_interventions": total_interventions,
+            "planner_intervention_rate": total_interventions / max(env_steps, 1),
+            "planner_all_actions_unsafe": total_all_unsafe,
+            "planner_all_actions_unsafe_rate": total_all_unsafe / max(env_steps, 1),
+            "planner_safe_exploration_actions": total_safe_explore,
+            "planner_mean_reachable_area": float(np.mean(all_reachable_areas)) if all_reachable_areas else 0.0,
+            "planner_tail_reachable_rate": float(np.mean(all_tail_reachables)) if all_tail_reachables else 0.0,
+        })
     with open(os.path.join(output_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 
@@ -662,6 +781,17 @@ def main() -> None:
                     help="Number of episodes per greedy evaluation.")
     p.add_argument("--headless", action="store_true", default=True)
     p.add_argument("--output-dir", type=str, default=None)
+    
+    # Planner CLI args
+    p.add_argument("--train-with-planner", action="store_true", default=False)
+    p.add_argument("--planner-weight", type=float, default=2.0)
+    p.add_argument("--planner-area-weight", type=float, default=1.0)
+    p.add_argument("--planner-tail-reach-weight", type=float, default=1.0)
+    p.add_argument("--planner-safe-exploration", action="store_true", default=True)
+    p.add_argument("--no-planner-safe-exploration", action="store_false", dest="planner_safe_exploration")
+    p.add_argument("--planner-mask-target-actions", action="store_true", default=True)
+    p.add_argument("--no-planner-mask-target-actions", action="store_false", dest="planner_mask_target_actions")
+
     p.add_argument("--resume", type=str, default=None,
                     help="Path to checkpoint.pt to resume training from. "
                          "Loads model, optimizer state, and adjusts env_steps/epsilon.")

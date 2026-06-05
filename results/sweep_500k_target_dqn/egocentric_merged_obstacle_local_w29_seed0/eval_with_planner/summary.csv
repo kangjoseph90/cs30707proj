@@ -1,0 +1,15 @@
+metric,value
+mean score,40.8
+median score,40.0
+std,10.638608931622592
+min,15
+max,64
+>=20,0.98
+>=30,0.85
+>=40,0.54
+body death rate,0.85
+wall death rate,0.15
+timeout rate,0.0
+mean survival steps,516.1
+planner intervention count,341
+all-actions-unsafe count,100

@@ -203,10 +203,27 @@ def main():
     p.add_argument("--planner-weight", type=float, default=2.0)
     p.add_argument("--planner-area-weight", type=float, default=1.0)
     p.add_argument("--planner-tail-reach-weight", type=float, default=1.0)
+    
+    # Custom checkpoint loading
+    p.add_argument("--checkpoint", type=str, default=None, help="Path to custom checkpoint.pt file to load")
+    
     args = p.parse_args()
 
-    if args.agent == "all":
-        agent_keys = [k for k in AGENTS if k != "heuristic"]
+    if args.checkpoint:
+        if not os.path.isfile(args.checkpoint):
+            print(f"Checkpoint file not found: {args.checkpoint}")
+            sys.exit(1)
+        ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        cfg = ckpt["config"]
+        AGENTS["custom"] = {
+            "rep": cfg["representation"],
+            "ws": cfg.get("local_window_size"),
+            "ckpt": args.checkpoint,
+            "label": "Custom Checkpoint",
+        }
+        agent_keys = ["custom"]
+    elif args.agent == "all":
+        agent_keys = [k for k in AGENTS if k != "heuristic" and k != "custom"]
     elif args.agent in AGENTS:
         agent_keys = [args.agent]
     else:

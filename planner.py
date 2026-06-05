@@ -54,11 +54,11 @@ class SafetyPlanner:
         self.area_weight = area_weight
         self.tail_reach_weight = tail_reach_weight
 
-    def choose_action(
+    def analyze_actions(
         self,
         env: SnakeEnv,
         q_values: Sequence[float],
-    ) -> PlannerDecision:
+    ) -> list[PlannerActionInfo]:
         actions_info = []
         board_size = env.board_size
 
@@ -135,6 +135,14 @@ class SafetyPlanner:
                         combined_score=combined_score,
                     )
                 )
+        return actions_info
+
+    def choose_action(
+        self,
+        env: SnakeEnv,
+        q_values: Sequence[float],
+    ) -> PlannerDecision:
+        actions_info = self.analyze_actions(env, q_values)
 
         # Decide action
         # If all actions are unsafe, fall back to argmax Q-value

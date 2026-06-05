@@ -28,6 +28,7 @@ class Transition(NamedTuple):
     next_state: SnakeState
     terminated: bool
     truncated: bool
+    next_safe_mask: np.ndarray | None = None
 
 
 class ReplayBuffer:
@@ -51,9 +52,10 @@ class ReplayBuffer:
         next_state: SnakeState,
         terminated: bool,
         truncated: bool,
+        next_safe_mask: np.ndarray | None = None,
     ) -> None:
         self._buf.append(
-            Transition(state, action, reward, next_state, terminated, truncated)
+            Transition(state, action, reward, next_state, terminated, truncated, next_safe_mask)
         )
 
     def sample(
@@ -65,6 +67,7 @@ class ReplayBuffer:
         torch.FloatTensor,   # next_states (B, input_dim)
         torch.FloatTensor,   # terminated  (B,)
         torch.FloatTensor,   # truncated   (B,)
+        torch.BoolTensor,    # next_safe_masks (B, 3)
     ]:
         transitions = random.sample(list(self._buf), batch_size)
 
@@ -75,6 +78,14 @@ class ReplayBuffer:
         terminated = np.array([t.terminated for t in transitions], dtype=np.float32)
         truncated = np.array([t.truncated for t in transitions], dtype=np.float32)
 
+        masks = []
+        for t in transitions:
+            if t.next_safe_mask is not None:
+                masks.append(t.next_safe_mask)
+            else:
+                masks.append(np.array([True, True, True], dtype=np.bool_))
+        next_safe_masks = np.stack(masks)
+
         return (
             torch.from_numpy(states),
             torch.from_numpy(actions).unsqueeze(1),
@@ -82,6 +93,7 @@ class ReplayBuffer:
             torch.from_numpy(next_states),
             torch.from_numpy(terminated),
             torch.from_numpy(truncated),
+            torch.from_numpy(next_safe_masks),
         )
 
 
@@ -92,6 +104,7 @@ class EncodedTransition(NamedTuple):
     next_state: np.ndarray
     terminated: bool
     truncated: bool
+    next_safe_mask: np.ndarray | None = None
 
 
 class EncodedReplayBuffer:
@@ -115,6 +128,7 @@ class EncodedReplayBuffer:
         next_state: np.ndarray,
         terminated: bool,
         truncated: bool,
+        next_safe_mask: np.ndarray | None = None,
     ) -> None:
         self._buf.append(
             EncodedTransition(
@@ -124,6 +138,7 @@ class EncodedReplayBuffer:
                 next_state.copy(),
                 terminated,
                 truncated,
+                next_safe_mask,
             )
         )
 
@@ -136,6 +151,7 @@ class EncodedReplayBuffer:
         torch.FloatTensor,   # next_states (B, input_dim)
         torch.FloatTensor,   # terminated  (B,)
         torch.FloatTensor,   # truncated   (B,)
+        torch.BoolTensor,    # next_safe_masks (B, 3)
     ]:
         transitions = random.sample(list(self._buf), batch_size)
 
@@ -146,6 +162,14 @@ class EncodedReplayBuffer:
         terminated = np.array([t.terminated for t in transitions], dtype=np.float32)
         truncated = np.array([t.truncated for t in transitions], dtype=np.float32)
 
+        masks = []
+        for t in transitions:
+            if t.next_safe_mask is not None:
+                masks.append(t.next_safe_mask)
+            else:
+                masks.append(np.array([True, True, True], dtype=np.bool_))
+        next_safe_masks = np.stack(masks)
+
         return (
             torch.from_numpy(states),
             torch.from_numpy(actions).unsqueeze(1),
@@ -153,6 +177,7 @@ class EncodedReplayBuffer:
             torch.from_numpy(next_states),
             torch.from_numpy(terminated),
             torch.from_numpy(truncated),
+            torch.from_numpy(next_safe_masks),
         )
 
 
@@ -169,6 +194,7 @@ class NStepEncodedTransition(NamedTuple):
     terminated: bool
     truncated: bool
     bootstrap_discount: float  # gamma ** actual_n
+    next_safe_mask: np.ndarray | None = None
 
 
 class NStepReplayBuffer:
@@ -203,9 +229,10 @@ class NStepReplayBuffer:
         next_state: np.ndarray,
         terminated: bool,
         truncated: bool,
+        next_safe_mask: np.ndarray | None = None,
     ) -> None:
         self._pending.append(
-            (state.copy(), action, reward, next_state.copy(), terminated, truncated)
+            (state.copy(), action, reward, next_state.copy(), terminated, truncated, next_safe_mask)
         )
 
         # Emit once we have n_step pending transitions
@@ -226,8 +253,9 @@ class NStepReplayBuffer:
         next_state = None
         terminated = False
         truncated = False
+        next_safe_mask = None
 
-        for i, (_, _, r, ns, term, trunc) in enumerate(self._pending):
+        for i, (_, _, r, ns, term, trunc, mask) in enumerate(self._pending):
             if i >= self._n_step:
                 break
             cum_reward += (self._gamma ** i) * r
@@ -235,6 +263,7 @@ class NStepReplayBuffer:
             next_state = ns
             terminated = term
             truncated = trunc
+            next_safe_mask = mask
             if term or trunc:
                 break
 
@@ -247,6 +276,7 @@ class NStepReplayBuffer:
                 terminated,
                 truncated,
                 self._gamma ** actual_n,
+                next_safe_mask,
             )
         )
         self._pending.popleft()
@@ -263,6 +293,7 @@ class NStepReplayBuffer:
         torch.FloatTensor,   # terminated  (B,)
         torch.FloatTensor,   # truncated   (B,)
         torch.FloatTensor,   # bootstrap_discount (B,)
+        torch.BoolTensor,    # next_safe_masks (B, 3)
     ]:
         transitions = random.sample(list(self._buf), batch_size)
 
@@ -276,6 +307,14 @@ class NStepReplayBuffer:
             [t.bootstrap_discount for t in transitions], dtype=np.float32
         )
 
+        masks = []
+        for t in transitions:
+            if t.next_safe_mask is not None:
+                masks.append(t.next_safe_mask)
+            else:
+                masks.append(np.array([True, True, True], dtype=np.bool_))
+        next_safe_masks = np.stack(masks)
+
         return (
             torch.from_numpy(states),
             torch.from_numpy(actions).unsqueeze(1),
@@ -284,4 +323,5 @@ class NStepReplayBuffer:
             torch.from_numpy(terminated),
             torch.from_numpy(truncated),
             torch.from_numpy(discounts),
+            torch.from_numpy(next_safe_masks),
         )
