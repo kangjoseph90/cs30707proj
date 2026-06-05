@@ -197,6 +197,12 @@ def main():
     p.add_argument("--speed", type=int, default=15, help="Steps per second (default: 15)")
     p.add_argument("--episodes", type=int, default=3, help="Episodes per agent (default: 3)")
     p.add_argument("--seed", type=int, default=0)
+    
+    # Planner args
+    p.add_argument("--use-planner", action="store_true", default=False)
+    p.add_argument("--planner-weight", type=float, default=2.0)
+    p.add_argument("--planner-area-weight", type=float, default=1.0)
+    p.add_argument("--planner-tail-reach-weight", type=float, default=1.0)
     args = p.parse_args()
 
     if args.agent == "all":
@@ -214,6 +220,16 @@ def main():
     font_small = pygame.font.SysFont("consolas", 16)
 
     board_px = BOARD_SIZE * PPB
+
+    if args.use_planner:
+        from planner import SafetyPlanner
+        planner = SafetyPlanner(
+            planner_weight=args.planner_weight,
+            area_weight=args.planner_area_weight,
+            tail_reach_weight=args.planner_tail_reach_weight,
+        )
+    else:
+        planner = None
 
     for agent_key in agent_keys:
         info = AGENTS[agent_key]
@@ -234,9 +250,10 @@ def main():
         else:
             print(f"  No checkpoint, using heuristic")
 
-        # Layout: single agent fullscreen
+        # Layout: single agent fullscreen + planner info space if using planner
         win_w = board_px + 2
-        win_h = board_px + HEADER_H + 2
+        extra_h = 160 if args.use_planner else 0
+        win_h = board_px + HEADER_H + extra_h + 2
         screen = pygame.display.set_mode((win_w, win_h))
         pygame.display.set_caption(f"Snake Agent: {info['label']}")
 
@@ -252,6 +269,9 @@ def main():
             done = False
             step_count = 0
             score = 0
+            
+            last_decision = None
+            last_q_values = None
 
             while not done:
                 dt = clock.tick(FPS) / 1000.0
@@ -290,9 +310,19 @@ def main():
                     if model is not None:
                         with torch.no_grad():
                             sv = torch.FloatTensor(encoder.encode(state)).unsqueeze(0)
-                            action = torch.argmax(model(sv)).item()
+                            q_values = model(sv).squeeze(0).numpy()
+                        if args.use_planner:
+                            last_decision = planner.choose_action(env, q_values)
+                            action = last_decision.chosen_action
+                            last_q_values = q_values
+                        else:
+                            action = np.argmax(q_values).item()
+                            last_decision = None
+                            last_q_values = q_values
                     else:
                         action = heuristic_action(env, state)
+                        last_decision = None
+                        last_q_values = None
 
                     state, _, term, trunc, info_dict = env.step(action)
                     step_count += 1
@@ -320,6 +350,70 @@ def main():
                     True, (120, 120, 120)
                 )
                 screen.blit(hint, (8, 32))
+
+                # Safety planner panel drawing
+                if args.use_planner and last_decision is not None:
+                    y_start = board_px + HEADER_H
+                    pygame.draw.line(screen, (80, 80, 90), (0, y_start), (win_w, y_start), 2)
+                    
+                    panel_rect = pygame.Rect(1, y_start + 2, win_w - 2, 158)
+                    pygame.draw.rect(screen, (20, 20, 25), panel_rect)
+                    
+                    title = font_small.render(
+                        f"SAFETY PLANNER (W_p={args.planner_weight:.1f})",
+                        True, (0, 180, 255)
+                    )
+                    screen.blit(title, (12, y_start + 8))
+                    
+                    dqn_argmax = np.argmax(last_q_values) if last_q_values is not None else -1
+                    if last_decision.chosen_action != dqn_argmax:
+                        override_txt = font_small.render("PLANNER OVERRIDE ACTIVE", True, (255, 140, 0))
+                        screen.blit(override_txt, (250, y_start + 8))
+                        
+                    actions_labels = ["LEFT (0)", "STRAIGHT (1)", "RIGHT (2)"]
+                    col_width = 148
+                    start_x = 12
+                    
+                    for a in range(3):
+                        info_act = last_decision.actions[a]
+                        x_pos = start_x + a * 154
+                        
+                        col_rect = pygame.Rect(x_pos, y_start + 30, col_width, 118)
+                        if a == last_decision.chosen_action:
+                            is_override = (last_decision.chosen_action != dqn_argmax)
+                            border_color = (255, 140, 0) if is_override else (0, 255, 120)
+                            pygame.draw.rect(screen, (30, 45, 35) if not is_override else (45, 35, 25), col_rect)
+                            pygame.draw.rect(screen, border_color, col_rect, 2)
+                            
+                            chosen_txt = font_small.render("[SELECTED]", True, border_color)
+                            screen.blit(chosen_txt, (x_pos + 8, y_start + 34))
+                        else:
+                            pygame.draw.rect(screen, (25, 25, 30), col_rect)
+                            pygame.draw.rect(screen, (60, 60, 70), col_rect, 1)
+                            
+                            act_txt = font_small.render(actions_labels[a], True, (150, 150, 150))
+                            screen.blit(act_txt, (x_pos + 8, y_start + 34))
+                            
+                        if info_act.immediate_death:
+                            death_txt = font_small.render("DEATH / MASKED", True, COL_DEAD)
+                            screen.blit(death_txt, (x_pos + 8, y_start + 55))
+                            score_txt = font_small.render("Score: -inf", True, (120, 120, 120))
+                            screen.blit(score_txt, (x_pos + 8, y_start + 115))
+                        else:
+                            q_txt = font_small.render(f"Q-val: {info_act.q_value:.2f}", True, (200, 200, 200))
+                            screen.blit(q_txt, (x_pos + 8, y_start + 55))
+                            
+                            area_pct = info_act.reachable_area / (BOARD_SIZE * BOARD_SIZE) * 100
+                            area_txt = font_small.render(f"Area: {area_pct:.1f}% ({info_act.reachable_area})", True, (180, 180, 200))
+                            screen.blit(area_txt, (x_pos + 8, y_start + 75))
+                            
+                            tail_str = "Tail: REACHABLE" if info_act.can_reach_tail else "Tail: BLOCKED"
+                            tail_col = (100, 255, 100) if info_act.can_reach_tail else (200, 100, 100)
+                            tail_txt = font_small.render(tail_str, True, tail_col)
+                            screen.blit(tail_txt, (x_pos + 8, y_start + 95))
+                            
+                            score_txt = font_small.render(f"Score: {info_act.combined_score:.2f}", True, COL_SCORE)
+                            screen.blit(score_txt, (x_pos + 8, y_start + 115))
 
                 pygame.display.flip()
 
