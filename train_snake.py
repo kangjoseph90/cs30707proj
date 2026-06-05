@@ -25,16 +25,19 @@ import numpy as np
 import torch
 
 from analysis_collector import AnalysisCollector, SparsityCollector
-from model import MLPDQN
+from model import CNNDQN, HybridDQN, MLPDQN
 from replay_buffer import EncodedReplayBuffer, NStepReplayBuffer, ReplayBuffer
 from snake_env import SnakeEnv
 from state_encoders import (
     BlindSniffEncoder,
+    CNNEgocentricEncoder,
     DenseOrderedGlobalEncoder,
     DenseOrderedLocalEncoder,
     EgocentricMergedObstacleLocalEncoder,
     EgocentricMergedOrderedLocalEncoder,
     FullStateEncoder,
+    HybridEgocentricEncoder,
+    HybridMinimalEncoder,
     LocalStateEncoder,
     MergedObstacleLocalEncoder,
     MergedOrderedLocalEncoder,
@@ -54,6 +57,7 @@ _WINDOW_REPS = {
     "dense_ordered_local", "occupancy_local",
     "merged_obstacle_local", "egocentric_merged_obstacle_local",
     "merged_ordered_local", "egocentric_merged_ordered_local",
+    "cnn_egocentric", "hybrid_egocentric", "hybrid_minimal",
 }
 
 
@@ -91,6 +95,12 @@ def make_encoder(
         return EgocentricMergedOrderedLocalEncoder(board_size, max_length, window_size)
     if representation == "blind_sniff":
         return BlindSniffEncoder(board_size, max_length)
+    if representation == "cnn_egocentric":
+        return CNNEgocentricEncoder(board_size, max_length, window_size)
+    if representation == "hybrid_egocentric":
+        return HybridEgocentricEncoder(board_size, max_length, window_size)
+    if representation == "hybrid_minimal":
+        return HybridMinimalEncoder(board_size, max_length, window_size)
     raise ValueError(f"Unknown representation: {representation}")
 
 
@@ -114,7 +124,7 @@ EVAL_SEEDS = list(range(1000, 1030))
 
 
 def run_greedy_evaluation(
-    model: MLPDQN,
+    model: torch.nn.Module,
     encoder: StateEncoder,
     board_size: int,
     max_length: int,
@@ -198,8 +208,27 @@ def train(args: argparse.Namespace) -> None:
         seed=args.seed,
     )
 
-    model = MLPDQN(input_dim=encoder.output_dim, output_dim=3)
-    target_model = MLPDQN(input_dim=encoder.output_dim, output_dim=3)
+    # Model: Hybrid for hybrid_egocentric, CNN for cnn_egocentric, MLP for all others
+    if args.representation == "hybrid_egocentric":
+        assert isinstance(encoder, HybridEgocentricEncoder)
+        model = HybridDQN(input_dim=encoder.output_dim, mlp_dim=encoder.mlp_dim)
+        target_model = HybridDQN(input_dim=encoder.output_dim, mlp_dim=encoder.mlp_dim)
+    elif args.representation == "hybrid_minimal":
+        assert isinstance(encoder, HybridMinimalEncoder)
+        model = HybridDQN(
+            input_dim=encoder.output_dim, mlp_dim=encoder.mlp_dim,
+            grid_channels=2,
+        )
+        target_model = HybridDQN(
+            input_dim=encoder.output_dim, mlp_dim=encoder.mlp_dim,
+            grid_channels=2,
+        )
+    elif args.representation == "cnn_egocentric":
+        model = CNNDQN(input_dim=encoder.output_dim)
+        target_model = CNNDQN(input_dim=encoder.output_dim)
+    else:
+        model = MLPDQN(input_dim=encoder.output_dim, output_dim=3)
+        target_model = MLPDQN(input_dim=encoder.output_dim, output_dim=3)
     target_model.load_state_dict(model.state_dict())
     target_model.eval()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -227,7 +256,8 @@ def train(args: argparse.Namespace) -> None:
 
     gamma = args.gamma
     n_step = args.n_step
-    batch_size = 256
+    batch_size = args.batch_size
+    learn_every = args.learn_every
     warmup_steps = args.warmup_steps
     target_update_freq = 1000  # steps between target network syncs
     grad_clip_norm = 10.0
@@ -257,6 +287,7 @@ def train(args: argparse.Namespace) -> None:
         "gamma": gamma,
         "learning_rate": 1e-3,
         "batch_size": batch_size,
+        "learn_every": learn_every,
         "buffer_capacity": 100_000,
         "cache_encoded_replay": cache_encoded_replay,
         "warmup_steps": warmup_steps,
@@ -292,7 +323,7 @@ def train(args: argparse.Namespace) -> None:
     # -- Resume from checkpoint -------------------------------------------
     resume_path = getattr(args, "resume", None)
     if resume_path and os.path.isfile(resume_path):
-        print(f"Resuming from {resume_path}")
+        print(f"Resuming from {resume_path}", flush=True)
         ckpt = torch.load(resume_path, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt["model_state_dict"])
         target_model.load_state_dict(ckpt["model_state_dict"])
@@ -303,7 +334,7 @@ def train(args: argparse.Namespace) -> None:
         epsilon = ckpt.get("epsilon", eps_end)
         # Recompute epsilon from schedule based on resumed env_steps
         epsilon = eps_end + (eps_start - eps_end) * math.exp(-env_steps / eps_decay)
-        print(f"  Resumed at env_steps={env_steps}, episode={episode}, epsilon={epsilon:.4f}")
+        print(f"  Resumed at env_steps={env_steps}, episode={episode}, epsilon={epsilon:.4f}", flush=True)
 
     csv_rows: list[dict] = []
     eval_csv_rows: list[dict] = []
@@ -362,8 +393,8 @@ def train(args: argparse.Namespace) -> None:
 
         env_steps += 1
 
-        # --- Optimise ---
-        if env_steps >= warmup_steps and len(buffer) >= batch_size:
+        # --- Optimise (every learn_every steps) ---
+        if env_steps >= warmup_steps and len(buffer) >= batch_size and env_steps % learn_every == 0:
             t0 = time.perf_counter()
             t_enc_start = time.perf_counter()
             sample_out = buffer.sample(batch_size, encoder)
@@ -414,7 +445,8 @@ def train(args: argparse.Namespace) -> None:
             print(
                 f"  [eval @ {env_steps}] "
                 f"score={eval_stats['eval_score_mean']:.1f} "
-                f"± {eval_stats['eval_score_std']:.1f}"
+                f"± {eval_stats['eval_score_std']:.1f}",
+                flush=True,
             )
 
         # --- Checkpoint milestone ---
@@ -431,7 +463,7 @@ def train(args: argparse.Namespace) -> None:
                 },
                 os.path.join(output_dir, ckpt_name),
             )
-            print(f"  [checkpoint] saved {ckpt_name}")
+            print(f"  [checkpoint] saved {ckpt_name}", flush=True)
 
         # --- Episode boundary ---
         if terminated or truncated:
@@ -457,7 +489,8 @@ def train(args: argparse.Namespace) -> None:
                 print(
                     f"[{args.representation} seed={args.seed}] "
                     f"ep={episode}  score={info['score']}  "
-                    f"best={best}  eps={epsilon:.4f}  steps={env_steps}"
+                    f"best={best}  eps={epsilon:.4f}  steps={env_steps}",
+                    flush=True,
                 )
 
             # Check termination
@@ -587,13 +620,13 @@ def train(args: argparse.Namespace) -> None:
     with open(os.path.join(output_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"\nDone. Results saved to {output_dir}/")
-    print(f"  Total env steps: {env_steps}")
-    print(f"  Total episodes: {episode}")
-    print(f"  Training time: {t_wall:.1f}s")
+    print(f"\nDone. Results saved to {output_dir}/", flush=True)
+    print(f"  Total env steps: {env_steps}", flush=True)
+    print(f"  Total episodes: {episode}", flush=True)
+    print(f"  Training time: {t_wall:.1f}s", flush=True)
     if scores:
-        print(f"  Best score: {max(scores)}")
-    print(f"  Best eval score: {best_eval:.1f}")
+        print(f"  Best score: {max(scores)}", flush=True)
+    print(f"  Best eval score: {best_eval:.1f}", flush=True)
 
     # Reward exploitation warning
     if csv_rows:
@@ -621,7 +654,7 @@ def main() -> None:
             "occupancy_global", "occupancy_local",
             "merged_obstacle_local", "egocentric_merged_obstacle_local",
             "merged_ordered_local", "egocentric_merged_ordered_local",
-            "blind_sniff",
+            "blind_sniff", "cnn_egocentric", "hybrid_egocentric", "hybrid_minimal",
         ],
         help="State representation to use.",
     )
@@ -645,6 +678,10 @@ def main() -> None:
                     help="Discount factor (default: 0.95).")
     p.add_argument("--n-step", type=int, default=1,
                     help="N-step return (default: 1).")
+    p.add_argument("--batch-size", type=int, default=256,
+                    help="Replay batch size (default: 256).")
+    p.add_argument("--learn-every", type=int, default=1,
+                    help="Optimize every N env steps (default: 1).")
     p.add_argument("--warmup-steps", type=int, default=256,
                     help="Random exploration steps before training starts.")
     p.add_argument("--cache-encoded-replay", action="store_true",

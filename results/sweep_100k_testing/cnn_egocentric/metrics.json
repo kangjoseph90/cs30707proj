@@ -1,0 +1,21 @@
+{
+  "representation": "cnn_egocentric",
+  "input_dimension": 2526,
+  "compression_ratio_vs_full": 0.1111,
+  "input_sparsity_mean": 0.7509,
+  "input_sparsity_std": 0.0024,
+  "parameter_count": 69699,
+  "training_time_seconds": 268.32,
+  "env_step_time_seconds": 1.4569,
+  "action_encoding_time_seconds": 23.7762,
+  "replay_cache_encoding_time_seconds": 23.6051,
+  "batch_encoding_time_seconds": 42.6654,
+  "optimization_time_seconds": 137.0813,
+  "best_eval_score_mean": 16.2,
+  "final_eval_score_mean": 13.97,
+  "final_eval_score_std": 6.09,
+  "best_score": 25,
+  "learning_curve_auc": 11.9825,
+  "total_env_steps": 100000,
+  "total_episodes": 1663
+}

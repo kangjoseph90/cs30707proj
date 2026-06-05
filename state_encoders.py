@@ -1024,3 +1024,298 @@ class BlindSniffEncoder(StateEncoder):
         out[4] = ego_fruit_y / (bs - 1)
 
         return out
+
+
+# ---------------------------------------------------------------------------
+# CNN Egocentric Full-View Spatial State
+# ---------------------------------------------------------------------------
+
+
+class CNNEgocentricEncoder(StateEncoder):
+    """3-channel egocentric full-view spatial state for CNN input.
+
+    Output layout (flat vector):
+        obstacle_channel     : K²  (1.0 if wall OR body)
+        release_time_channel : K²  (normalized steps until cell opens)
+        fruit_channel        : K²  (1.0 at fruit position)
+        fruit_ego_dx         : 1   (egocentric, normalized)
+        fruit_ego_dy         : 1   (egocentric, normalized)
+        body_length_norm     : 1   (body_length / max_length)
+    Total: 3K² + 3
+
+    K=29: 3×841 + 3 = 2526
+
+    Obstacle + release_time jointly encode cell semantics:
+        obstacle=1, release_time=0  → wall (permanent obstacle)
+        obstacle=1, release_time>0  → body (temporary obstacle)
+        obstacle=0, release_time=0  → empty
+
+    release_time convention:
+        release_steps = body_length - segment_index
+        release_value = (release_steps + 1) / (max_length + 1)
+    Even the tail gets value > 0 so it is never confused with a wall.
+
+    Egocentric rotation: forward always maps to grid-up (ego_y < 0).
+    Head is always at grid center.
+    """
+
+    def __init__(
+        self,
+        board_size: int = 15,
+        max_length: int = 100,
+        window_size: int = 29,
+    ):
+        self.board_size = board_size
+        self.max_length = max_length
+        self.window_size = window_size
+        self._k = window_size
+        self._center = window_size // 2
+
+    @property
+    def output_dim(self) -> int:
+        return 3 * self._k * self._k + 3
+
+    def encode(self, state: SnakeState) -> np.ndarray:
+        bs = self.board_size
+        k = self._k
+        center = self._center
+        hx, hy = state.head
+        fx, fy = DELTA[state.direction]  # forward vector
+        ksq = k * k
+        blen = len(state.body)
+        ml = self.max_length
+
+        out = np.zeros(self.output_dim, dtype=np.float32)
+
+        # Precompute channel offsets
+        off_obstacle = 0
+        off_release = ksq
+        off_fruit = 2 * ksq
+        off_scalars = 3 * ksq
+
+        # --- Body segments → egocentric positions ---
+        for seg_idx, seg in enumerate(state.body):
+            dx = seg[0] - hx
+            dy = seg[1] - hy
+            ego_x = -fy * dx + fx * dy
+            ego_y = -fx * dx + -fy * dy
+            gx = center + ego_x
+            gy = center + ego_y
+            if 0 <= gx < k and 0 <= gy < k:
+                pos = _local_idx(gx, gy, k)
+                out[off_obstacle + pos] = 1.0  # obstacle
+                # release_time: (steps_until_open + 1) / (max_length + 1)
+                release_steps = blen - seg_idx
+                out[off_release + pos] = (release_steps + 1) / (ml + 1)
+
+        # --- Wall cells: reverse-transform each ego grid cell ---
+        for gy in range(k):
+            for gx in range(k):
+                pos = _local_idx(gx, gy, k)
+                if out[off_obstacle + pos] > 0:
+                    continue  # already body
+                ego_x = gx - center
+                ego_y = gy - center
+                # Ego-to-world inverse transform
+                wdx = -fy * ego_x + -fx * ego_y
+                wdy = fx * ego_x + -fy * ego_y
+                abs_x = hx + wdx
+                abs_y = hy + wdy
+                if abs_x < 0 or abs_x >= bs or abs_y < 0 or abs_y >= bs:
+                    out[off_obstacle + pos] = 1.0  # wall (release stays 0)
+
+        # --- Fruit position in egocentric grid ---
+        fdx = state.fruit[0] - hx
+        fdy = state.fruit[1] - hy
+        ego_fruit_x = -fy * fdx + fx * fdy
+        ego_fruit_y = -fx * fdx + -fy * fdy
+
+        fruit_gx = center + ego_fruit_x
+        fruit_gy = center + ego_fruit_y
+        if 0 <= fruit_gx < k and 0 <= fruit_gy < k:
+            out[off_fruit + _local_idx(fruit_gx, fruit_gy, k)] = 1.0
+
+        # --- Auxiliary scalars ---
+        out[off_scalars] = ego_fruit_x / (bs - 1)
+        out[off_scalars + 1] = ego_fruit_y / (bs - 1)
+        out[off_scalars + 2] = blen / ml
+
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Hybrid MLP + CNN Encoder
+# ---------------------------------------------------------------------------
+
+
+class HybridEgocentricEncoder(StateEncoder):
+    """Combined encoder for Hybrid MLP+CNN DQN.
+
+    Concatenates:
+        MLP part : EgocentricMergedObstacleLocalEncoder output (K² + 6)
+        CNN part : 3-channel grid only (3 × K², no scalars)
+
+    The CNN scalars (fruit dxdy, body_length) are already covered by the
+    MLP branch, so only the spatial grid channels are forwarded to CNN.
+
+    Total: (K² + 6) + 3K² = 4K² + 6
+
+    K=29: 4×841 + 6 = 3370
+    """
+
+    def __init__(
+        self,
+        board_size: int = 15,
+        max_length: int = 100,
+        window_size: int = 29,
+    ):
+        self.board_size = board_size
+        self.max_length = max_length
+        self.window_size = window_size
+        self._k = window_size
+        self._ksq = window_size * window_size
+        self._mlp_enc = EgocentricMergedObstacleLocalEncoder(
+            board_size, max_length, window_size
+        )
+        self._cnn_enc = CNNEgocentricEncoder(
+            board_size, max_length, window_size
+        )
+
+    @property
+    def output_dim(self) -> int:
+        return self._mlp_enc.output_dim + 3 * self._ksq
+
+    @property
+    def mlp_dim(self) -> int:
+        return self._mlp_enc.output_dim
+
+    @property
+    def cnn_grid_dim(self) -> int:
+        return 3 * self._ksq
+
+    def encode(self, state: SnakeState) -> np.ndarray:
+        mlp_vec = self._mlp_enc.encode(state)
+        cnn_vec = self._cnn_enc.encode(state)
+        cnn_grid = cnn_vec[: self.cnn_grid_dim]  # grid channels only
+        return np.concatenate([mlp_vec, cnn_grid])
+
+
+class HybridMinimalEncoder(StateEncoder):
+    """No order, no direction.  Pure spatial + fruit for hybrid MLP+CNN.
+
+    MLP part:
+        obstacle_flat : K²  (1.0 if wall OR body, egocentric)
+        fruit_ego_dx  : 1   (egocentric, normalized)
+        fruit_ego_dy  : 1   (egocentric, normalized)
+    Total MLP: K² + 2
+
+    CNN part:
+        obstacle_grid  : K²  (1.0 if wall OR body)
+        fruit_grid     : K²  (1.0 at fruit position)
+        fruit_ego_dx   : 1   (egocentric, normalized)
+        fruit_ego_dy   : 1   (egocentric, normalized)
+        body_length    : 1   (body_length / max_length)
+    Total CNN: 2K² + 3
+
+    Grand total: 3K² + 5
+
+    K=29: 3×841 + 5 = 2528
+
+    Egocentric rotation applied.  No body order, no direction one-hot.
+    CNN cannot distinguish wall from body — must learn from spatial context.
+    """
+
+    def __init__(
+        self,
+        board_size: int = 15,
+        max_length: int = 100,
+        window_size: int = 29,
+    ):
+        self.board_size = board_size
+        self.max_length = max_length
+        self.window_size = window_size
+        self._k = window_size
+        self._ksq = window_size * window_size
+        self._center = window_size // 2
+
+    @property
+    def output_dim(self) -> int:
+        return 3 * self._ksq + 5
+
+    @property
+    def mlp_dim(self) -> int:
+        return self._ksq + 2
+
+    @property
+    def cnn_grid_dim(self) -> int:
+        return 2 * self._ksq
+
+    def encode(self, state: SnakeState) -> np.ndarray:
+        bs = self.board_size
+        k = self._k
+        center = self._center
+        hx, hy = state.head
+        fx, fy = DELTA[state.direction]
+        ksq = self._ksq
+        blen = len(state.body)
+        ml = self.max_length
+
+        out = np.zeros(self.output_dim, dtype=np.float32)
+
+        # Offsets
+        off_mlp_obs = 0           # K²
+        off_mlp_scalars = ksq     # +2
+        off_cnn_obs = ksq + 2     # K²
+        off_cnn_fruit = 2 * ksq + 2  # K²
+        off_cnn_scalars = 3 * ksq + 2  # +3
+
+        # --- Body segments → egocentric ---
+        for seg in state.body:
+            dx = seg[0] - hx
+            dy = seg[1] - hy
+            ego_x = -fy * dx + fx * dy
+            ego_y = -fx * dx + -fy * dy
+            gx = center + ego_x
+            gy = center + ego_y
+            if 0 <= gx < k and 0 <= gy < k:
+                pos = _local_idx(gx, gy, k)
+                out[off_mlp_obs + pos] = 1.0    # MLP obstacle
+                out[off_cnn_obs + pos] = 1.0    # CNN obstacle
+
+        # --- Wall cells ---
+        for gy in range(k):
+            for gx in range(k):
+                pos = _local_idx(gx, gy, k)
+                if out[off_cnn_obs + pos] > 0:
+                    continue
+                ego_x = gx - center
+                ego_y = gy - center
+                wdx = -fy * ego_x + -fx * ego_y
+                wdy = fx * ego_x + -fy * ego_y
+                abs_x = hx + wdx
+                abs_y = hy + wdy
+                if abs_x < 0 or abs_x >= bs or abs_y < 0 or abs_y >= bs:
+                    out[off_mlp_obs + pos] = 1.0    # MLP obstacle
+                    out[off_cnn_obs + pos] = 1.0    # CNN obstacle
+
+        # --- Fruit in egocentric ---
+        fdx = state.fruit[0] - hx
+        fdy = state.fruit[1] - hy
+        ego_fruit_x = -fy * fdx + fx * fdy
+        ego_fruit_y = -fx * fdx + -fy * fdy
+
+        fruit_gx = center + ego_fruit_x
+        fruit_gy = center + ego_fruit_y
+        if 0 <= fruit_gx < k and 0 <= fruit_gy < k:
+            out[off_cnn_fruit + _local_idx(fruit_gx, fruit_gy, k)] = 1.0
+
+        # --- Scalars ---
+        ego_dx_norm = ego_fruit_x / (bs - 1)
+        ego_dy_norm = ego_fruit_y / (bs - 1)
+        out[off_mlp_scalars] = ego_dx_norm
+        out[off_mlp_scalars + 1] = ego_dy_norm
+        out[off_cnn_scalars] = ego_dx_norm
+        out[off_cnn_scalars + 1] = ego_dy_norm
+        out[off_cnn_scalars + 2] = blen / ml
+
+        return out
