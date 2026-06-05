@@ -107,6 +107,18 @@ AGENTS = {
         "ckpt": None,
         "label": "Heuristic",
     },
+    "target_gamma099": {
+        "rep": "egocentric_merged_obstacle_local",
+        "ws": 29,
+        "ckpt": "results/sweep_500k_target_dqn_gamma099/egocentric_merged_obstacle_local_w29_seed0/checkpoint.pt",
+        "label": "Target γ=0.99",
+    },
+    "target_gamma095": {
+        "rep": "egocentric_merged_obstacle_local",
+        "ws": 29,
+        "ckpt": "results/sweep_500k_target_dqn/egocentric_merged_obstacle_local_w29_seed0/checkpoint.pt",
+        "label": "Target γ=0.95",
+    },
 }
 
 

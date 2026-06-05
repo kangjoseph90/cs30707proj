@@ -26,7 +26,7 @@ import torch
 
 from analysis_collector import AnalysisCollector, SparsityCollector
 from model import MLPDQN
-from replay_buffer import EncodedReplayBuffer, ReplayBuffer
+from replay_buffer import EncodedReplayBuffer, NStepReplayBuffer, ReplayBuffer
 from snake_env import SnakeEnv
 from state_encoders import (
     BlindSniffEncoder,
@@ -199,14 +199,12 @@ def train(args: argparse.Namespace) -> None:
     )
 
     model = MLPDQN(input_dim=encoder.output_dim, output_dim=3)
+    target_model = MLPDQN(input_dim=encoder.output_dim, output_dim=3)
+    target_model.load_state_dict(model.state_dict())
+    target_model.eval()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    criterion = torch.nn.MSELoss()
+    criterion = torch.nn.SmoothL1Loss()  # Huber loss
     cache_encoded_replay = getattr(args, "cache_encoded_replay", False)
-    buffer = (
-        EncodedReplayBuffer(capacity=100_000)
-        if cache_encoded_replay
-        else ReplayBuffer(capacity=100_000)
-    )
 
     # Determine termination mode
     if args.total_env_steps is not None:
@@ -227,9 +225,20 @@ def train(args: argparse.Namespace) -> None:
     # Checkpoint milestones
     checkpoint_steps = set(args.checkpoint_steps) if args.checkpoint_steps else set()
 
-    gamma = 0.95
+    gamma = args.gamma
+    n_step = args.n_step
     batch_size = 256
     warmup_steps = args.warmup_steps
+    target_update_freq = 1000  # steps between target network syncs
+    grad_clip_norm = 10.0
+
+    # -- Buffer (after gamma/n_step are defined) --------------------------
+    if cache_encoded_replay and n_step > 1:
+        buffer = NStepReplayBuffer(capacity=100_000, n_step=n_step, gamma=gamma)
+    elif cache_encoded_replay:
+        buffer = EncodedReplayBuffer(capacity=100_000)
+    else:
+        buffer = ReplayBuffer(capacity=100_000)
 
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
@@ -256,6 +265,9 @@ def train(args: argparse.Namespace) -> None:
         "eps_start": eps_start,
         "eps_end": eps_end,
         "eps_decay": eps_decay,
+        "target_update_freq": target_update_freq,
+        "grad_clip_norm": grad_clip_norm,
+        "n_step": n_step,
     }
     with open(os.path.join(output_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=2)
@@ -283,6 +295,7 @@ def train(args: argparse.Namespace) -> None:
         print(f"Resuming from {resume_path}")
         ckpt = torch.load(resume_path, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt["model_state_dict"])
+        target_model.load_state_dict(ckpt["model_state_dict"])
         if "optimizer_state_dict" in ckpt:
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         env_steps = ckpt.get("env_steps", 0)
@@ -353,22 +366,32 @@ def train(args: argparse.Namespace) -> None:
         if env_steps >= warmup_steps and len(buffer) >= batch_size:
             t0 = time.perf_counter()
             t_enc_start = time.perf_counter()
-            b_s, b_a, b_r, b_ns, b_term, b_trunc = buffer.sample(batch_size, encoder)
+            sample_out = buffer.sample(batch_size, encoder)
             t_batch_encoding += time.perf_counter() - t_enc_start
+
+            b_s, b_a, b_r, b_ns, b_term, b_trunc = sample_out[:6]
+            b_discount = sample_out[6] if len(sample_out) > 6 else torch.full_like(b_r, gamma)
 
             current_q = model(b_s).gather(1, b_a)
             with torch.no_grad():
-                max_next_q = model(b_ns).max(1)[0]
-                expected_q = b_r + gamma * max_next_q * (1.0 - b_term)
+                # Double DQN: online net selects action, target net evaluates
+                next_actions = model(b_ns).argmax(dim=1, keepdim=True)
+                max_next_q = target_model(b_ns).gather(1, next_actions).squeeze(1)
+                expected_q = b_r + b_discount * max_next_q * (1.0 - b_term)
 
             optimizer.zero_grad()
             loss = criterion(current_q.squeeze(1), expected_q)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
             optimizer.step()
 
             t_optimization += time.perf_counter() - t0
             episode_loss_sum += loss.item()
             episode_loss_count += 1
+
+        # --- Target network sync ---
+        if env_steps % target_update_freq == 0 and env_steps >= warmup_steps:
+            target_model.load_state_dict(model.state_dict())
 
         # --- Epsilon decay ---
         epsilon = eps_end + (eps_start - eps_end) * np.exp(-1.0 * env_steps / eps_decay)
@@ -618,6 +641,10 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max-steps", type=int, default=2000,
                     help="Max steps per episode (truncation).")
+    p.add_argument("--gamma", type=float, default=0.95,
+                    help="Discount factor (default: 0.95).")
+    p.add_argument("--n-step", type=int, default=1,
+                    help="N-step return (default: 1).")
     p.add_argument("--warmup-steps", type=int, default=256,
                     help="Random exploration steps before training starts.")
     p.add_argument("--cache-encoded-replay", action="store_true",
