@@ -1,0 +1,21 @@
+{
+  "representation": "occupancy_local",
+  "board_size": 15,
+  "max_length": 100,
+  "total_env_steps": 100000,
+  "episodes": null,
+  "seed": 0,
+  "max_steps": 2000,
+  "local_window_size": 9,
+  "input_dimension": 168,
+  "gamma": 0.95,
+  "learning_rate": 0.001,
+  "batch_size": 256,
+  "buffer_capacity": 100000,
+  "warmup_steps": 256,
+  "eval_interval": 5000,
+  "eval_episodes": 30,
+  "eps_start": 0.95,
+  "eps_end": 1e-20,
+  "eps_decay": 100000.0
+}

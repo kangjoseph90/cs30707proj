@@ -1,0 +1,210 @@
+{
+  "full": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "structural": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "local_sparse_ordered_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2982,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005701,
+    "mean_alias_bucket_size": 2.06,
+    "max_alias_bucket_size": 3
+  },
+  "local_sparse_ordered_7": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2930,
+    "aliased_encoded_states": 45,
+    "aliasing_rate": 0.015358,
+    "mean_alias_bucket_size": 2.56,
+    "max_alias_bucket_size": 9
+  },
+  "local_sparse_ordered_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2768,
+    "aliased_encoded_states": 120,
+    "aliasing_rate": 0.043353,
+    "mean_alias_bucket_size": 2.93,
+    "max_alias_bucket_size": 16
+  },
+  "dense_ordered_global": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "dense_ordered_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2982,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005701,
+    "mean_alias_bucket_size": 2.06,
+    "max_alias_bucket_size": 3
+  },
+  "dense_ordered_local_7": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2930,
+    "aliased_encoded_states": 45,
+    "aliasing_rate": 0.015358,
+    "mean_alias_bucket_size": 2.56,
+    "max_alias_bucket_size": 9
+  },
+  "dense_ordered_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2768,
+    "aliased_encoded_states": 120,
+    "aliasing_rate": 0.043353,
+    "mean_alias_bucket_size": 2.93,
+    "max_alias_bucket_size": 16
+  },
+  "occupancy_global": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "occupancy_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2982,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005701,
+    "mean_alias_bucket_size": 2.06,
+    "max_alias_bucket_size": 3
+  },
+  "occupancy_local_7": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2930,
+    "aliased_encoded_states": 45,
+    "aliasing_rate": 0.015358,
+    "mean_alias_bucket_size": 2.56,
+    "max_alias_bucket_size": 9
+  },
+  "occupancy_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2767,
+    "aliased_encoded_states": 121,
+    "aliasing_rate": 0.04373,
+    "mean_alias_bucket_size": 2.93,
+    "max_alias_bucket_size": 16
+  },
+  "merged_obstacle_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2763,
+    "aliased_encoded_states": 125,
+    "aliasing_rate": 0.045241,
+    "mean_alias_bucket_size": 2.9,
+    "max_alias_bucket_size": 16
+  },
+  "merged_obstacle_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2982,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005701,
+    "mean_alias_bucket_size": 2.06,
+    "max_alias_bucket_size": 3
+  },
+  "merged_obstacle_local_29": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "egocentric_merged_obstacle_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2763,
+    "aliased_encoded_states": 125,
+    "aliasing_rate": 0.045241,
+    "mean_alias_bucket_size": 2.9,
+    "max_alias_bucket_size": 16
+  },
+  "egocentric_merged_obstacle_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2982,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005701,
+    "mean_alias_bucket_size": 2.06,
+    "max_alias_bucket_size": 3
+  },
+  "egocentric_merged_obstacle_local_29": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "merged_ordered_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2768,
+    "aliased_encoded_states": 120,
+    "aliasing_rate": 0.043353,
+    "mean_alias_bucket_size": 2.93,
+    "max_alias_bucket_size": 16
+  },
+  "merged_ordered_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2982,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005701,
+    "mean_alias_bucket_size": 2.06,
+    "max_alias_bucket_size": 3
+  },
+  "merged_ordered_local_29": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "egocentric_merged_ordered_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2768,
+    "aliased_encoded_states": 120,
+    "aliasing_rate": 0.043353,
+    "mean_alias_bucket_size": 2.93,
+    "max_alias_bucket_size": 16
+  },
+  "egocentric_merged_ordered_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2982,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005701,
+    "mean_alias_bucket_size": 2.06,
+    "max_alias_bucket_size": 3
+  },
+  "egocentric_merged_ordered_local_29": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "blind_sniff": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 1092,
+    "aliased_encoded_states": 424,
+    "aliasing_rate": 0.388278,
+    "mean_alias_bucket_size": 5.5,
+    "max_alias_bucket_size": 116
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "representation": "occupancy_global",
+  "input_dimension": 679,
+  "compression_ratio_vs_full": 0.0299,
+  "input_sparsity_mean": 0.9897,
+  "input_sparsity_std": 0.0025,
+  "parameter_count": 215427,
+  "training_time_seconds": 1844.71,
+  "env_step_time_seconds": 8.138,
+  "action_encoding_time_seconds": 3.171,
+  "replay_cache_encoding_time_seconds": 1.4382,
+  "batch_encoding_time_seconds": 845.2187,
+  "optimization_time_seconds": 1769.5889,
+  "best_eval_score_mean": 3.8,
+  "final_eval_score_mean": 3.53,
+  "final_eval_score_std": 2.23,
+  "best_score": 12,
+  "learning_curve_auc": 3.1233,
+  "total_env_steps": 500000,
+  "total_episodes": 6215
+}

@@ -1,0 +1,138 @@
+{
+  "full": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "structural": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "local_sparse_ordered_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2980,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005705,
+    "mean_alias_bucket_size": 2.18,
+    "max_alias_bucket_size": 4
+  },
+  "local_sparse_ordered_7": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2919,
+    "aliased_encoded_states": 54,
+    "aliasing_rate": 0.018499,
+    "mean_alias_bucket_size": 2.5,
+    "max_alias_bucket_size": 6
+  },
+  "local_sparse_ordered_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2736,
+    "aliased_encoded_states": 140,
+    "aliasing_rate": 0.05117,
+    "mean_alias_bucket_size": 2.89,
+    "max_alias_bucket_size": 14
+  },
+  "dense_ordered_global": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "dense_ordered_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2980,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005705,
+    "mean_alias_bucket_size": 2.18,
+    "max_alias_bucket_size": 4
+  },
+  "dense_ordered_local_7": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2919,
+    "aliased_encoded_states": 54,
+    "aliasing_rate": 0.018499,
+    "mean_alias_bucket_size": 2.5,
+    "max_alias_bucket_size": 6
+  },
+  "dense_ordered_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2736,
+    "aliased_encoded_states": 140,
+    "aliasing_rate": 0.05117,
+    "mean_alias_bucket_size": 2.89,
+    "max_alias_bucket_size": 14
+  },
+  "occupancy_global": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 3000,
+    "aliased_encoded_states": 0,
+    "aliasing_rate": 0.0,
+    "mean_alias_bucket_size": 0.0,
+    "max_alias_bucket_size": 0
+  },
+  "occupancy_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2980,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005705,
+    "mean_alias_bucket_size": 2.18,
+    "max_alias_bucket_size": 4
+  },
+  "occupancy_local_7": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2919,
+    "aliased_encoded_states": 54,
+    "aliasing_rate": 0.018499,
+    "mean_alias_bucket_size": 2.5,
+    "max_alias_bucket_size": 6
+  },
+  "occupancy_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2730,
+    "aliased_encoded_states": 144,
+    "aliasing_rate": 0.052747,
+    "mean_alias_bucket_size": 2.88,
+    "max_alias_bucket_size": 14
+  },
+  "merged_obstacle_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2723,
+    "aliased_encoded_states": 150,
+    "aliasing_rate": 0.055086,
+    "mean_alias_bucket_size": 2.85,
+    "max_alias_bucket_size": 14
+  },
+  "merged_obstacle_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2980,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005705,
+    "mean_alias_bucket_size": 2.18,
+    "max_alias_bucket_size": 4
+  },
+  "egocentric_merged_obstacle_local_5": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2723,
+    "aliased_encoded_states": 150,
+    "aliasing_rate": 0.055086,
+    "mean_alias_bucket_size": 2.85,
+    "max_alias_bucket_size": 14
+  },
+  "egocentric_merged_obstacle_local_9": {
+    "unique_canonical_states": 3000,
+    "unique_encoded_states": 2980,
+    "aliased_encoded_states": 17,
+    "aliasing_rate": 0.005705,
+    "mean_alias_bucket_size": 2.18,
+    "max_alias_bucket_size": 4
+  }
+}

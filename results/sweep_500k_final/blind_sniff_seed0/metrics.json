@@ -1,0 +1,21 @@
+{
+  "representation": "blind_sniff",
+  "input_dimension": 5,
+  "compression_ratio_vs_full": 0.0002,
+  "input_sparsity_mean": 0.6071,
+  "input_sparsity_std": 0.1227,
+  "parameter_count": 42883,
+  "training_time_seconds": 834.78,
+  "env_step_time_seconds": 7.0308,
+  "action_encoding_time_seconds": 2.5924,
+  "replay_cache_encoding_time_seconds": 1.3885,
+  "batch_encoding_time_seconds": 333.2861,
+  "optimization_time_seconds": 786.3035,
+  "best_eval_score_mean": 27.77,
+  "final_eval_score_mean": 26.03,
+  "final_eval_score_std": 7.5,
+  "best_score": 39,
+  "learning_curve_auc": 24.345,
+  "total_env_steps": 500000,
+  "total_episodes": 5075
+}

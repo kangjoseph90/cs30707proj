@@ -1,0 +1,14 @@
+representation,local_window_size,seed,input_dimension,compression_ratio_vs_full,input_sparsity_mean,input_sparsity_std,parameter_count,training_time_seconds,best_eval_score_mean,final_eval_score_mean,final_eval_score_std,best_score,learning_curve_auc,total_env_steps,total_episodes
+blind_sniff,7,0,5,0.0002,0.6071,0.1227,42883,834.78,27.77,26.03,7.5,39,24.345,500000,5075
+egocentric_merged_obstacle_local,29,0,847,0.0373,0.259,0.0086,258435,1868.24,37.33,32.2,10.08,45,23.57,500000,5076
+egocentric_merged_obstacle_local,5,0,31,0.0014,0.7198,0.1264,49539,1100.9,34.2,29.3,7.44,46,26.985,500000,4961
+egocentric_merged_obstacle_local,9,0,87,0.0038,0.7355,0.1686,63875,1100.24,28.47,26.77,8.36,40,22.7217,500000,4943
+egocentric_merged_ordered_local,29,0,1688,0.0743,0.6235,0.0084,473731,2931.26,35.33,35.33,6.66,42,25.3533,500000,5056
+egocentric_merged_ordered_local,5,0,56,0.0025,0.7877,0.0921,55939,849.21,31.63,29.33,6.69,43,26.5967,500000,4964
+egocentric_merged_ordered_local,9,0,168,0.0074,0.8317,0.0968,84611,1020.69,29.8,29.8,7.56,45,23.2733,500000,5052
+merged_obstacle_local,29,0,847,0.0373,0.2594,0.008,258435,2578.97,30.0,26.8,8.6,41,21.3233,500000,5245
+merged_obstacle_local,5,0,31,0.0014,0.7194,0.1261,49539,1214.8,30.27,28.03,7.85,44,24.1583,500000,5022
+merged_obstacle_local,9,0,87,0.0038,0.736,0.1681,63875,1261.72,25.33,25.33,7.44,44,20.3533,500000,5071
+merged_ordered_local,29,0,1688,0.0743,0.6242,0.0075,473731,3453.15,26.97,24.37,7.63,37,20.215,500000,5227
+merged_ordered_local,5,0,56,0.0025,0.789,0.0912,55939,1256.01,29.17,29.17,6.8,42,23.1717,500000,4973
+merged_ordered_local,9,0,168,0.0074,0.8335,0.0959,84611,1618.08,23.53,23.33,7.02,40,19.4033,500000,5210

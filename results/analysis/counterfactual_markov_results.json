@@ -1,0 +1,189 @@
+{
+  "full": {
+    "aliased_buckets": 0,
+    "states_in_aliased_buckets": 0,
+    "total_simulated_transitions": 0,
+    "skipped_ate_fruit": 0,
+    "unique_state_action_pairs": 0,
+    "conflicting_pairs": 0,
+    "violation_rate": 0.0,
+    "mean_outcomes_per_pair": 0.0,
+    "max_outcomes_per_pair": 0
+  },
+  "structural": {
+    "aliased_buckets": 0,
+    "states_in_aliased_buckets": 0,
+    "total_simulated_transitions": 0,
+    "skipped_ate_fruit": 0,
+    "unique_state_action_pairs": 0,
+    "conflicting_pairs": 0,
+    "violation_rate": 0.0,
+    "mean_outcomes_per_pair": 0.0,
+    "max_outcomes_per_pair": 0
+  },
+  "local_sparse_ordered_9": {
+    "aliased_buckets": 17,
+    "states_in_aliased_buckets": 37,
+    "total_simulated_transitions": 98,
+    "skipped_ate_fruit": 13,
+    "unique_state_action_pairs": 46,
+    "conflicting_pairs": 10,
+    "violation_rate": 0.217391,
+    "mean_outcomes_per_pair": 1.24,
+    "max_outcomes_per_pair": 3
+  },
+  "local_sparse_ordered_7": {
+    "aliased_buckets": 54,
+    "states_in_aliased_buckets": 135,
+    "total_simulated_transitions": 367,
+    "skipped_ate_fruit": 38,
+    "unique_state_action_pairs": 149,
+    "conflicting_pairs": 46,
+    "violation_rate": 0.308725,
+    "mean_outcomes_per_pair": 1.32,
+    "max_outcomes_per_pair": 3
+  },
+  "local_sparse_ordered_5": {
+    "aliased_buckets": 140,
+    "states_in_aliased_buckets": 404,
+    "total_simulated_transitions": 1132,
+    "skipped_ate_fruit": 80,
+    "unique_state_action_pairs": 399,
+    "conflicting_pairs": 136,
+    "violation_rate": 0.340852,
+    "mean_outcomes_per_pair": 1.36,
+    "max_outcomes_per_pair": 3
+  },
+  "dense_ordered_global": {
+    "aliased_buckets": 0,
+    "states_in_aliased_buckets": 0,
+    "total_simulated_transitions": 0,
+    "skipped_ate_fruit": 0,
+    "unique_state_action_pairs": 0,
+    "conflicting_pairs": 0,
+    "violation_rate": 0.0,
+    "mean_outcomes_per_pair": 0.0,
+    "max_outcomes_per_pair": 0
+  },
+  "dense_ordered_local_9": {
+    "aliased_buckets": 17,
+    "states_in_aliased_buckets": 37,
+    "total_simulated_transitions": 98,
+    "skipped_ate_fruit": 13,
+    "unique_state_action_pairs": 46,
+    "conflicting_pairs": 10,
+    "violation_rate": 0.217391,
+    "mean_outcomes_per_pair": 1.24,
+    "max_outcomes_per_pair": 3
+  },
+  "dense_ordered_local_7": {
+    "aliased_buckets": 54,
+    "states_in_aliased_buckets": 135,
+    "total_simulated_transitions": 367,
+    "skipped_ate_fruit": 38,
+    "unique_state_action_pairs": 149,
+    "conflicting_pairs": 46,
+    "violation_rate": 0.308725,
+    "mean_outcomes_per_pair": 1.32,
+    "max_outcomes_per_pair": 3
+  },
+  "dense_ordered_local_5": {
+    "aliased_buckets": 140,
+    "states_in_aliased_buckets": 404,
+    "total_simulated_transitions": 1132,
+    "skipped_ate_fruit": 80,
+    "unique_state_action_pairs": 399,
+    "conflicting_pairs": 136,
+    "violation_rate": 0.340852,
+    "mean_outcomes_per_pair": 1.36,
+    "max_outcomes_per_pair": 3
+  },
+  "occupancy_global": {
+    "aliased_buckets": 0,
+    "states_in_aliased_buckets": 0,
+    "total_simulated_transitions": 0,
+    "skipped_ate_fruit": 0,
+    "unique_state_action_pairs": 0,
+    "conflicting_pairs": 0,
+    "violation_rate": 0.0,
+    "mean_outcomes_per_pair": 0.0,
+    "max_outcomes_per_pair": 0
+  },
+  "occupancy_local_9": {
+    "aliased_buckets": 17,
+    "states_in_aliased_buckets": 37,
+    "total_simulated_transitions": 98,
+    "skipped_ate_fruit": 13,
+    "unique_state_action_pairs": 46,
+    "conflicting_pairs": 10,
+    "violation_rate": 0.217391,
+    "mean_outcomes_per_pair": 1.24,
+    "max_outcomes_per_pair": 3
+  },
+  "occupancy_local_7": {
+    "aliased_buckets": 54,
+    "states_in_aliased_buckets": 135,
+    "total_simulated_transitions": 367,
+    "skipped_ate_fruit": 38,
+    "unique_state_action_pairs": 149,
+    "conflicting_pairs": 46,
+    "violation_rate": 0.308725,
+    "mean_outcomes_per_pair": 1.32,
+    "max_outcomes_per_pair": 3
+  },
+  "occupancy_local_5": {
+    "aliased_buckets": 144,
+    "states_in_aliased_buckets": 414,
+    "total_simulated_transitions": 1160,
+    "skipped_ate_fruit": 82,
+    "unique_state_action_pairs": 410,
+    "conflicting_pairs": 142,
+    "violation_rate": 0.346341,
+    "mean_outcomes_per_pair": 1.37,
+    "max_outcomes_per_pair": 3
+  },
+  "merged_obstacle_local_5": {
+    "aliased_buckets": 150,
+    "states_in_aliased_buckets": 427,
+    "total_simulated_transitions": 1197,
+    "skipped_ate_fruit": 84,
+    "unique_state_action_pairs": 427,
+    "conflicting_pairs": 155,
+    "violation_rate": 0.362998,
+    "mean_outcomes_per_pair": 1.38,
+    "max_outcomes_per_pair": 3
+  },
+  "merged_obstacle_local_9": {
+    "aliased_buckets": 17,
+    "states_in_aliased_buckets": 37,
+    "total_simulated_transitions": 98,
+    "skipped_ate_fruit": 13,
+    "unique_state_action_pairs": 46,
+    "conflicting_pairs": 10,
+    "violation_rate": 0.217391,
+    "mean_outcomes_per_pair": 1.24,
+    "max_outcomes_per_pair": 3
+  },
+  "egocentric_merged_obstacle_local_5": {
+    "aliased_buckets": 150,
+    "states_in_aliased_buckets": 427,
+    "total_simulated_transitions": 1197,
+    "skipped_ate_fruit": 84,
+    "unique_state_action_pairs": 427,
+    "conflicting_pairs": 155,
+    "violation_rate": 0.362998,
+    "mean_outcomes_per_pair": 1.38,
+    "max_outcomes_per_pair": 3
+  },
+  "egocentric_merged_obstacle_local_9": {
+    "aliased_buckets": 17,
+    "states_in_aliased_buckets": 37,
+    "total_simulated_transitions": 98,
+    "skipped_ate_fruit": 13,
+    "unique_state_action_pairs": 46,
+    "conflicting_pairs": 10,
+    "violation_rate": 0.217391,
+    "mean_outcomes_per_pair": 1.24,
+    "max_outcomes_per_pair": 3
+  }
+}
