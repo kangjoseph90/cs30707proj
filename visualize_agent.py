@@ -203,7 +203,17 @@ def main():
     p.add_argument("--planner-weight", type=float, default=2.0)
     p.add_argument("--planner-area-weight", type=float, default=1.0)
     p.add_argument("--planner-tail-reach-weight", type=float, default=1.0)
-    
+
+    # Beam veto args
+    p.add_argument("--use-beam-veto", action="store_true", default=False)
+    p.add_argument("--beam-max-depth", type=int, default=6)
+    p.add_argument("--beam-width", type=int, default=8)
+    p.add_argument("--beam-always-on", action="store_true", default=False)
+    p.add_argument("--beam-area-margin", type=int, default=10)
+    p.add_argument("--beam-disable-trigger-on-bfs-override", action="store_true", default=False)
+    p.add_argument("--beam-disable-trigger-on-tail-unreachable", action="store_true", default=False)
+    p.add_argument("--beam-disable-trigger-on-low-legal-actions", action="store_true", default=False)
+
     # Custom checkpoint loading
     p.add_argument("--checkpoint", type=str, default=None, help="Path to custom checkpoint.pt file to load")
     
@@ -248,6 +258,24 @@ def main():
     else:
         planner = None
 
+    if args.use_beam_veto:
+        if planner is None:
+            print("--use-beam-veto requires --use-planner")
+            sys.exit(1)
+        from beam_veto_planner import BeamSearchVetoPlanner, BeamVetoConfig
+        beam_config = BeamVetoConfig(
+            max_depth=args.beam_max_depth,
+            beam_width=args.beam_width,
+            use_conditional_trigger=not args.beam_always_on,
+            trigger_area_margin=args.beam_area_margin,
+            trigger_on_bfs_override=not args.beam_disable_trigger_on_bfs_override,
+            trigger_on_tail_unreachable=not args.beam_disable_trigger_on_tail_unreachable,
+            trigger_on_low_legal_actions=not args.beam_disable_trigger_on_low_legal_actions,
+        )
+        beam_planner = BeamSearchVetoPlanner(planner, beam_config)
+    else:
+        beam_planner = None
+
     for agent_key in agent_keys:
         info = AGENTS[agent_key]
         print(f"\n=== {info['label']} ===")
@@ -269,7 +297,12 @@ def main():
 
         # Layout: single agent fullscreen + planner info space if using planner
         win_w = board_px + 2
-        extra_h = 160 if args.use_planner else 0
+        if args.use_beam_veto:
+            extra_h = 280  # room for both panels
+        elif args.use_planner:
+            extra_h = 160
+        else:
+            extra_h = 0
         win_h = board_px + HEADER_H + extra_h + 2
         screen = pygame.display.set_mode((win_w, win_h))
         pygame.display.set_caption(f"Snake Agent: {info['label']}")
@@ -289,6 +322,7 @@ def main():
             
             last_decision = None
             last_q_values = None
+            last_beam_decision = None
 
             while not done:
                 dt = clock.tick(FPS) / 1000.0
@@ -328,18 +362,26 @@ def main():
                         with torch.no_grad():
                             sv = torch.FloatTensor(encoder.encode(state)).unsqueeze(0)
                             q_values = model(sv).squeeze(0).numpy()
-                        if args.use_planner:
+                        last_q_values = q_values
+
+                        if beam_planner is not None:
+                            last_bfs_decision = planner.choose_action(env, q_values)
+                            last_beam_decision = beam_planner.choose_action(env, q_values, last_bfs_decision)
+                            action = last_beam_decision.chosen_action
+                            last_decision = last_bfs_decision
+                        elif args.use_planner:
                             last_decision = planner.choose_action(env, q_values)
                             action = last_decision.chosen_action
-                            last_q_values = q_values
+                            last_beam_decision = None
                         else:
                             action = np.argmax(q_values).item()
                             last_decision = None
-                            last_q_values = q_values
+                            last_beam_decision = None
                     else:
                         action = heuristic_action(env, state)
                         last_decision = None
                         last_q_values = None
+                        last_beam_decision = None
 
                     state, _, term, trunc, info_dict = env.step(action)
                     step_count += 1
@@ -369,7 +411,8 @@ def main():
                 screen.blit(hint, (8, 32))
 
                 # Safety planner panel drawing
-                if args.use_planner and last_decision is not None:
+                beam_decision = last_beam_decision if beam_planner is not None else None
+                if (args.use_planner or beam_planner is not None) and last_decision is not None:
                     y_start = board_px + HEADER_H
                     pygame.draw.line(screen, (80, 80, 90), (0, y_start), (win_w, y_start), 2)
                     
@@ -431,6 +474,79 @@ def main():
                             
                             score_txt = font_small.render(f"Score: {info_act.combined_score:.2f}", True, COL_SCORE)
                             screen.blit(score_txt, (x_pos + 8, y_start + 115))
+
+                # Beam veto panel drawing
+                if beam_decision is not None:
+                    y_beam = y_start + 160
+                    pygame.draw.line(screen, (80, 80, 90), (0, y_beam), (win_w, y_beam), 2)
+
+                    beam_panel = pygame.Rect(1, y_beam + 2, win_w - 2, 118)
+                    pygame.draw.rect(screen, (20, 20, 25), beam_panel)
+
+                    beam_title = font_small.render(
+                        f"BEAM VETO (depth={args.beam_max_depth} width={args.beam_width})",
+                        True, (180, 100, 255)
+                    )
+                    screen.blit(beam_title, (12, y_beam + 8))
+
+                    if not beam_decision.planner_triggered:
+                        nt_txt = font_small.render(
+                            f"NOT TRIGGERED ({beam_decision.trigger_reason})",
+                            True, (120, 120, 120)
+                        )
+                        screen.blit(nt_txt, (12, y_beam + 28))
+                    else:
+                        if beam_decision.veto_applied:
+                            veto_col = (255, 60, 60)
+                            veto_txt = font_small.render(
+                                f"VETO APPLIED! reason={beam_decision.trigger_reason}",
+                                True, veto_col
+                            )
+                        else:
+                            veto_col = (100, 255, 100)
+                            veto_txt = font_small.render(
+                                f"Triggered ({beam_decision.trigger_reason}) - no veto",
+                                True, veto_col
+                            )
+                        screen.blit(veto_txt, (12, y_beam + 28))
+
+                        # Per-root-action info
+                        for a in range(3):
+                            r = beam_decision.root_results.get(a)
+                            if r is None:
+                                continue
+                            x_pos = 12 + a * 160
+                            lbl = f"{'L' if a==0 else 'S' if a==1 else 'R'}{a}"
+                            if r.immediate_death:
+                                r_txt = font_small.render(
+                                    f"{lbl}: IMM.DEATH", True, COL_DEAD
+                                )
+                            elif r.likely_forced_death:
+                                r_txt = font_small.render(
+                                    f"{lbl}: FORCED d={r.max_survival_depth}", True, (255, 140, 0)
+                                )
+                            else:
+                                r_txt = font_small.render(
+                                    f"{lbl}: OK d={r.max_survival_depth} h={r.survived_horizon_count} f={r.safe_fruit_reached_count}",
+                                    True, (100, 255, 100)
+                                )
+                            screen.blit(r_txt, (x_pos, y_beam + 48))
+
+                        rt_txt = font_small.render(
+                            f"Runtime: {beam_decision.runtime_ms:.1f}ms  "
+                            f"Expanded: {sum(r.expanded_nodes for r in beam_decision.root_results.values())}",
+                            True, (150, 150, 150)
+                        )
+                        screen.blit(rt_txt, (12, y_beam + 68))
+
+                        raw_dqn = int(np.argmax(last_q_values)) if last_q_values is not None else -1
+                        bfs_act = beam_decision.baseline_action
+                        final_act = beam_decision.chosen_action
+                        flow_txt = font_small.render(
+                            f"DQN→{raw_dqn}  BFS→{bfs_act}  Final→{final_act}",
+                            True, (200, 200, 200)
+                        )
+                        screen.blit(flow_txt, (12, y_beam + 88))
 
                 pygame.display.flip()
 

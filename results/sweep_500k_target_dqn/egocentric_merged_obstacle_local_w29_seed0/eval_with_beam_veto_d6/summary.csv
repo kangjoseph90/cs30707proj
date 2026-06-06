@@ -1,0 +1,23 @@
+metric,value
+mean score,42.72
+median score,43.5
+std,8.96669392808743
+min,21
+max,65
+>=20,1.0
+>=30,0.95
+>=40,0.66
+>=50,0.22
+>=60,0.01
+body death rate,0.94
+wall death rate,0.06
+timeout rate,0.0
+mean survival steps,548.41
+planner intervention count,456
+all-actions-unsafe count,100
+beam search calls,54841
+beam veto count,64
+beam veto rate,0.0011670100836965044
+all-root-forced-death count,502
+mean expanded nodes per call,3081.48
+mean runtime ms per call,245.16807199281175
