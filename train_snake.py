@@ -34,6 +34,7 @@ from state_encoders import (
     DenseOrderedLocalEncoder,
     EgocentricMergedObstacleLocalEncoder,
     EgocentricMergedOrderedLocalEncoder,
+    EgocentricMergedReleaseTimeLocalEncoder,
     FullStateEncoder,
     LocalStateEncoder,
     MergedObstacleLocalEncoder,
@@ -54,6 +55,7 @@ _WINDOW_REPS = {
     "dense_ordered_local", "occupancy_local",
     "merged_obstacle_local", "egocentric_merged_obstacle_local",
     "merged_ordered_local", "egocentric_merged_ordered_local",
+    "egocentric_merged_release_time_local",
 }
 
 
@@ -89,6 +91,8 @@ def make_encoder(
         return MergedOrderedLocalEncoder(board_size, max_length, window_size)
     if representation == "egocentric_merged_ordered_local":
         return EgocentricMergedOrderedLocalEncoder(board_size, max_length, window_size)
+    if representation == "egocentric_merged_release_time_local":
+        return EgocentricMergedReleaseTimeLocalEncoder(board_size, max_length, window_size)
     if representation == "blind_sniff":
         return BlindSniffEncoder(board_size, max_length)
     raise ValueError(f"Unknown representation: {representation}")
@@ -216,6 +220,25 @@ def train(args: argparse.Namespace) -> None:
     else:
         planner = None
 
+    if args.train_with_beam_veto:
+        if planner is None:
+            raise ValueError("--train-with-beam-veto requires --train-with-planner")
+        from beam_veto_planner import BeamSearchVetoPlanner, BeamVetoConfig
+        import collections as _collections
+        beam_config = BeamVetoConfig(
+            max_depth=args.beam_max_depth,
+            beam_width=args.beam_width,
+            use_conditional_trigger=not args.beam_always_on,
+            trigger_on_bfs_override=not args.beam_disable_trigger_on_bfs_override,
+            trigger_on_tail_unreachable=not args.beam_disable_trigger_on_tail_unreachable,
+            trigger_on_low_legal_actions=not args.beam_disable_trigger_on_low_legal_actions,
+        )
+        beam_planner = BeamSearchVetoPlanner(planner, beam_config)
+        beam_trigger_counts = _collections.Counter()
+    else:
+        beam_planner = None
+        beam_trigger_counts = None
+
     # -- Planner tracking -------------------------------------------------
     total_interventions = 0
     total_all_unsafe = 0
@@ -223,9 +246,18 @@ def train(args: argparse.Namespace) -> None:
     all_reachable_areas = []
     all_tail_reachables = []
 
+    # -- Beam veto tracking -----------------------------------------------
+    total_beam_search_runs = 0
+    total_beam_vetoes = 0
+    total_beam_all_forced = 0
+    total_beam_runtime_ms = 0.0
+
     # Episode-level stats
     episode_interventions = 0
     episode_all_unsafe = 0
+    episode_beam_search_runs = 0
+    episode_beam_vetoes = 0
+    episode_beam_all_forced = 0
 
     # Determine termination mode
     if args.total_env_steps is not None:
@@ -295,6 +327,9 @@ def train(args: argparse.Namespace) -> None:
         "planner_tail_reach_weight": args.planner_tail_reach_weight,
         "planner_safe_exploration": args.planner_safe_exploration,
         "planner_mask_target_actions": args.planner_mask_target_actions,
+        "train_with_beam_veto": args.train_with_beam_veto,
+        "beam_max_depth": args.beam_max_depth,
+        "beam_width": args.beam_width,
     }
     with open(os.path.join(output_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=2)
@@ -380,19 +415,40 @@ def train(args: argparse.Namespace) -> None:
 
             if random.random() > epsilon:
                 # Exploitation: argmax(combined_score) among safe actions
-                action = decision.chosen_action
+                baseline_action = decision.chosen_action
             else:
                 # Exploration
                 if args.planner_safe_exploration:
                     safe_actions = [info.action for info in decision.actions if not info.immediate_death]
                     if safe_actions:
-                        action = random.choice(safe_actions)
+                        baseline_action = random.choice(safe_actions)
                     else:
-                        action = dqn_argmax
+                        baseline_action = dqn_argmax
                     is_safe_exploration = True
                 else:
-                    action = random.randrange(3)
-            
+                    baseline_action = random.randrange(3)
+
+            # Beam veto layer (only during exploitation)
+            if beam_planner is not None and not is_safe_exploration:
+                beam_decision = beam_planner.choose_action(env, q_values, decision)
+                action = beam_decision.chosen_action
+                if beam_trigger_counts is not None:
+                    beam_trigger_counts[beam_decision.trigger_reason] += 1
+                if beam_decision.planner_triggered:
+                    total_beam_search_runs += 1
+                    episode_beam_search_runs += 1
+                    total_beam_runtime_ms += beam_decision.runtime_ms
+                if beam_decision.veto_applied:
+                    total_beam_vetoes += 1
+                    episode_beam_vetoes += 1
+                if beam_decision.planner_triggered and all(
+                    r.likely_forced_death for r in beam_decision.root_results.values()
+                ):
+                    total_beam_all_forced += 1
+                    episode_beam_all_forced += 1
+            else:
+                action = baseline_action
+
             # Log step-level metrics
             chosen_info = next(info for info in decision.actions if info.action == action)
             all_reachable_areas.append(chosen_info.reachable_area)
@@ -550,6 +606,12 @@ def train(args: argparse.Namespace) -> None:
                     "planner_intervention_count": episode_interventions,
                     "all_actions_unsafe_count": episode_all_unsafe,
                 })
+            if args.train_with_beam_veto:
+                row.update({
+                    "beam_search_runs": episode_beam_search_runs,
+                    "beam_vetoes": episode_beam_vetoes,
+                    "beam_all_forced_death": episode_beam_all_forced,
+                })
             csv_rows.append(row)
 
             episode += 1
@@ -576,6 +638,9 @@ def train(args: argparse.Namespace) -> None:
                 episode_death_penalty = 0.0
                 episode_interventions = 0
                 episode_all_unsafe = 0
+                episode_beam_search_runs = 0
+                episode_beam_vetoes = 0
+                episode_beam_all_forced = 0
         else:
             if env_steps >= total_env_steps:
                 done_training = True
@@ -703,6 +768,21 @@ def train(args: argparse.Namespace) -> None:
             "planner_mean_reachable_area": float(np.mean(all_reachable_areas)) if all_reachable_areas else 0.0,
             "planner_tail_reachable_rate": float(np.mean(all_tail_reachables)) if all_tail_reachables else 0.0,
         })
+    if args.train_with_beam_veto:
+        metrics.update({
+            "beam_search_runs": total_beam_search_runs,
+            "beam_search_run_rate": total_beam_search_runs / max(env_steps, 1),
+            "beam_vetoes": total_beam_vetoes,
+            "beam_veto_rate_per_env_step": total_beam_vetoes / max(env_steps, 1),
+            "beam_veto_rate_per_search_run": total_beam_vetoes / max(total_beam_search_runs, 1),
+            "beam_all_roots_forced_death": total_beam_all_forced,
+            "beam_all_roots_forced_death_rate": total_beam_all_forced / max(env_steps, 1),
+            "beam_runtime_ms_total": round(total_beam_runtime_ms, 2),
+            "beam_runtime_ms_mean": round(total_beam_runtime_ms / max(total_beam_search_runs, 1), 2),
+        })
+        if beam_trigger_counts:
+            for reason, count in beam_trigger_counts.most_common():
+                metrics[f"beam_trigger_{reason}"] = count
     with open(os.path.join(output_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
 
@@ -740,6 +820,7 @@ def main() -> None:
             "occupancy_global", "occupancy_local",
             "merged_obstacle_local", "egocentric_merged_obstacle_local",
             "merged_ordered_local", "egocentric_merged_ordered_local",
+            "egocentric_merged_release_time_local",
             "blind_sniff",
         ],
         help="State representation to use.",
@@ -792,6 +873,15 @@ def main() -> None:
     p.add_argument("--planner-mask-target-actions", action="store_true", default=True)
     p.add_argument("--no-planner-mask-target-actions", action="store_false", dest="planner_mask_target_actions")
 
+    # Beam veto CLI args
+    p.add_argument("--train-with-beam-veto", action="store_true", default=False)
+    p.add_argument("--beam-max-depth", type=int, default=25)
+    p.add_argument("--beam-width", type=int, default=4)
+    p.add_argument("--beam-always-on", action="store_true", default=False)
+    p.add_argument("--beam-disable-trigger-on-bfs-override", action="store_true", default=False)
+    p.add_argument("--beam-disable-trigger-on-tail-unreachable", action="store_true", default=False)
+    p.add_argument("--beam-disable-trigger-on-low-legal-actions", action="store_true", default=False)
+
     p.add_argument("--resume", type=str, default=None,
                     help="Path to checkpoint.pt to resume training from. "
                          "Loads model, optimizer state, and adjusts env_steps/epsilon.")
@@ -799,6 +889,9 @@ def main() -> None:
 
     if args.total_env_steps is None and args.episodes is None:
         p.error("Must specify --total-env-steps or --episodes")
+
+    if args.train_with_beam_veto and not args.train_with_planner:
+        p.error("--train-with-beam-veto requires --train-with-planner")
 
     if args.output_dir is None:
         ws = f"_w{args.local_window_size}" if args.representation in _WINDOW_REPS else ""

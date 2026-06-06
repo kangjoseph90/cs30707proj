@@ -966,6 +966,105 @@ class EgocentricMergedOrderedLocalEncoder(StateEncoder):
         return out
 
 
+class EgocentricMergedReleaseTimeLocalEncoder(StateEncoder):
+    """Egocentric merged obstacle + body release-time: heading-normalized rotation.
+
+    Layout (flat vector):
+        obstacle_grid    : K²  (1.0 if body OR wall, egocentric)
+        release_time_grid : K²  ((distance_from_tail + 1) / max_length for body)
+        fruit_dx_dy      : 2   (egocentric, normalized)
+        direction        : 4   (one-hot)
+    Total: 2K² + 6
+
+    K=5: 56d,  K=9: 168d,  K=29: 1688d
+
+    Release-time semantics:
+        tail segment  → distance_from_tail=0 → value = 1/max_length  (small, frees soon)
+        head segment  → distance_from_tail=N → value = (N+1)/max_length (large, blocks long)
+        wall / empty  → 0.0
+
+    Note: this is the REVERSE ordering of EgocentricMergedOrderedLocalEncoder,
+    which uses seg_idx / max_length (head→0, tail→large).
+    Here: tail→small, head→large.
+    """
+
+    def __init__(
+        self,
+        board_size: int = 15,
+        max_length: int = 100,
+        window_size: int = 9,
+    ):
+        self.board_size = board_size
+        self.max_length = max_length
+        self.window_size = window_size
+        self._k = window_size
+        self._center = window_size // 2
+
+    @property
+    def output_dim(self) -> int:
+        return 2 * self._k * self._k + 6
+
+    def encode(self, state: SnakeState) -> np.ndarray:
+        bs = self.board_size
+        k = self._k
+        center = self._center
+        hx, hy = state.head
+        ml = self.max_length
+        fx, fy = DELTA[state.direction]  # forward vector
+        body_len = len(state.body)
+
+        out = np.zeros(self.output_dim, dtype=np.float32)
+        ksq = k * k
+
+        # --- Channel 0: obstacle grid (body OR wall, egocentric) ---
+        # --- Channel 1: release-time grid (distance_from_tail + 1) / max_length ---
+
+        # Body segments → egocentric positions
+        for seg_idx, seg in enumerate(state.body):
+            dx = seg[0] - hx
+            dy = seg[1] - hy
+            ego_x = -fy * dx + fx * dy
+            ego_y = -fx * dx + -fy * dy
+            gx = center + ego_x
+            gy = center + ego_y
+            if 0 <= gx < k and 0 <= gy < k:
+                pos = _local_idx(gx, gy, k)
+                out[pos] = 1.0  # obstacle
+                dist_from_tail = body_len - 1 - seg_idx
+                release_steps = dist_from_tail + 1
+                out[ksq + pos] = release_steps / ml  # release-time
+
+        # Wall cells: reverse-transform each ego grid cell to world
+        for gy in range(k):
+            for gx in range(k):
+                if out[_local_idx(gx, gy, k)] == 1.0:
+                    continue  # already body
+                ego_x = gx - center
+                ego_y = gy - center
+                wdx = -fy * ego_x + -fx * ego_y
+                wdy = fx * ego_x + -fy * ego_y
+                abs_x = hx + wdx
+                abs_y = hy + wdy
+                if abs_x < 0 or abs_x >= bs or abs_y < 0 or abs_y >= bs:
+                    out[_local_idx(gx, gy, k)] = 1.0  # wall only
+
+        # --- Fruit dx, dy (egocentric, normalized) ---
+        fdx = state.fruit[0] - hx
+        fdy = state.fruit[1] - hy
+        ego_fruit_x = -fy * fdx + fx * fdy
+        ego_fruit_y = -fx * fdx + -fy * fdy
+
+        offset_grid = 2 * ksq
+        out[offset_grid] = ego_fruit_x / (bs - 1)
+        out[offset_grid + 1] = ego_fruit_y / (bs - 1)
+
+        # --- Direction (one-hot) ---
+        offset_dir = offset_grid + 2
+        out[offset_dir + state.direction] = 1.0
+
+        return out
+
+
 class BlindSniffEncoder(StateEncoder):
     """Minimal egocentric representation: 3-direction obstacle + fruit delta.
 
