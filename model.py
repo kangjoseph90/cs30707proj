@@ -1,6 +1,7 @@
 # File name : model.py
 # Author : Ted Song (original) / extended for CS30707 project
 
+import copy
 import os
 import math
 import random
@@ -357,3 +358,106 @@ class ZDQN:
         ckpt = torch.load(path, map_location=self.device)
         self.head.load_state_dict(ckpt["head"])
         self.encoder.load_state_dict(ckpt["encoder"])
+
+
+class ZDQN2(ZDQN):
+    """ZDQN + Target Network + Double DQN (van Hasselt et al., 2016).
+
+    Two improvements over ZDQN:
+    - Target network: Q-targets use a periodically-synced frozen copy of the
+      online network, so the training target doesn't shift every step.
+    - Double DQN: the online net selects the greedy action; the target net
+      evaluates it. Decouples selection from evaluation, reducing Q overestimation.
+
+    Default z_dim raised to 128 to match the larger representational demand.
+    """
+
+    def __init__(self, episode, z_dim: int = 128, output_size: int = 3,
+                 encoder=None, device=None,
+                 lr_head: float = 1e-3, lr_encoder: float = 1e-4,
+                 batch_size: int = 256, buffer_size: int = int(5e4),
+                 finetune_encoder: bool = True,
+                 epsilon_decay_mult: float = 3.0,
+                 epsilon_start: float = 0.95,
+                 target_update_freq: int = 1000):
+        super().__init__(episode, z_dim=z_dim, output_size=output_size,
+                         encoder=encoder, device=device,
+                         lr_head=lr_head, lr_encoder=lr_encoder,
+                         batch_size=batch_size, buffer_size=buffer_size,
+                         finetune_encoder=finetune_encoder,
+                         epsilon_decay_mult=epsilon_decay_mult,
+                         epsilon_start=epsilon_start)
+        self.target_encoder = copy.deepcopy(self.encoder)
+        self.target_head = copy.deepcopy(self.head)
+        for p in self.target_encoder.parameters():
+            p.requires_grad = False
+        for p in self.target_head.parameters():
+            p.requires_grad = False
+        self.target_update_freq = target_update_freq
+        self.update_steps = 0
+
+    def _sync_target(self):
+        self.target_encoder.load_state_dict(self.encoder.state_dict())
+        self.target_head.load_state_dict(self.head.state_dict())
+
+    def optimize_model(self):
+        if len(self.epi_for_memory) < self.batch_size:
+            return None
+        batch = random.sample(self.epi_for_memory, self.batch_size)
+        grids, dirs, actions, rewards, next_grids, next_dirs, dones = zip(*batch)
+
+        grids = torch.stack(grids).to(self.device)
+        dirs = torch.stack(dirs).to(self.device)
+        next_grids = torch.stack(next_grids).to(self.device)
+        next_dirs = torch.stack(next_dirs).to(self.device)
+        actions = torch.cat(actions).to(self.device)
+        rewards = torch.cat(rewards).to(self.device)
+        dones = torch.cat(dones).to(self.device)
+
+        if self.finetune_encoder:
+            self.encoder.train()
+        z = self.encoder(grids, dirs)
+        current_q = self.head(z).gather(1, actions)
+
+        with torch.no_grad():
+            self.encoder.eval()
+            # Double DQN: online net picks best action, target net evaluates it
+            z_next_online = self.encoder(next_grids, next_dirs)
+            best_actions = self.head(z_next_online).argmax(dim=1, keepdim=True)
+            z_next_target = self.target_encoder(next_grids, next_dirs)
+            next_q = self.target_head(z_next_target).gather(1, best_actions).squeeze(1)
+            next_q = next_q * (~dones).float()
+            if self.finetune_encoder:
+                self.encoder.train()
+
+        expected_q = rewards + self.gamma * next_q
+        q_loss = self.criterion(current_q.squeeze(), expected_q)
+
+        curl_loss = None
+        if self.curl is not None:
+            x_q = self.curl_aug_fn(grids)
+            x_k = self.curl_aug_fn(grids)
+            z_q = self.curl.encode_query(x_q, dirs)
+            z_k = self.curl.encode_key(x_k, dirs)
+            curl_loss = self.curl.info_nce_loss(z_q, z_k)
+            total = q_loss + self.curl_weight * curl_loss
+        else:
+            total = q_loss
+
+        self.optimizer.zero_grad()
+        total.backward()
+        all_params = [p for g in self.optimizer.param_groups for p in g['params']]
+        nn.utils.clip_grad_norm_(all_params, max_norm=10.0)
+        self.optimizer.step()
+
+        if self.curl is not None:
+            self.curl.update_key_encoder()
+
+        self.update_steps += 1
+        if self.update_steps % self.target_update_freq == 0:
+            self._sync_target()
+
+        out = {"q_loss": float(q_loss.item())}
+        if curl_loss is not None:
+            out["curl_loss"] = float(curl_loss.item())
+        return out

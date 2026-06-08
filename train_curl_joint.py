@@ -20,7 +20,6 @@ def train(episode: int, seed: int = 0, save_root: str = "runs",
              curl_weight=curl_weight, aug_pad=aug_pad,
              checkpoint_path=checkpoint, epsilon_start=eps_start)
 
-
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--episodes", type=int, default=300)

@@ -14,7 +14,8 @@ from snake import BoardX, BoardY, Snake, getDir
 def load_encoder(run_dir: str, device: torch.device = None) -> Tuple[SnakeEncoder, int, int]:
     """Loads the encoder saved by zdqn_loop. Returns (encoder, z_dim, frame_stack)."""
     device = device or torch.device("cpu")
-    ckpt = torch.load(os.path.join(run_dir, "model.pt"), map_location=device)
+    ckpt = torch.load(os.path.join(run_dir, "model.pt"), map_location=device,
+                      weights_only=False)
     if not isinstance(ckpt, dict) or "encoder" not in ckpt:
         raise ValueError(f"{run_dir} has no encoder checkpoint (setup A doesn't qualify).")
     z_dim = ckpt["z_dim"]
@@ -23,6 +24,33 @@ def load_encoder(run_dir: str, device: torch.device = None) -> Tuple[SnakeEncode
     enc.load_state_dict(ckpt["encoder"])
     enc.eval()
     return enc, z_dim, frame_stack
+
+
+def load_agent_nets(run_dir: str, device: torch.device = None):
+    """Load encoder + Q-head from a zdqn_loop checkpoint.
+
+    Returns (encoder, head, z_dim, frame_stack).
+    head: nn.Sequential matching ZDQN architecture (z_dim -> 128 -> 64 -> 3).
+    """
+    import torch.nn as nn
+    device = device or torch.device("cpu")
+    ckpt = torch.load(os.path.join(run_dir, "model.pt"), map_location=device,
+                      weights_only=False)
+    if not isinstance(ckpt, dict) or "encoder" not in ckpt or "head" not in ckpt:
+        raise ValueError(f"{run_dir} has no encoder+head checkpoint.")
+    z_dim = ckpt["z_dim"]
+    frame_stack = ckpt.get("frame_stack", 1)
+    enc = SnakeEncoder(in_channels=3 * frame_stack, z_dim=z_dim).to(device)
+    enc.load_state_dict(ckpt["encoder"])
+    enc.eval()
+    head = nn.Sequential(
+        nn.Linear(z_dim, 128), nn.ReLU(),
+        nn.Linear(128, 64),   nn.ReLU(),
+        nn.Linear(64, 3),
+    ).to(device)
+    head.load_state_dict(ckpt["head"])
+    head.eval()
+    return enc, head, z_dim, frame_stack
 
 
 def gt_features(game: Snake) -> np.ndarray:

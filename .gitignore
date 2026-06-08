@@ -1,5 +1,3 @@
-save/
-runs/
 runs_smoke/
 __pycache__/
 *.pyc
